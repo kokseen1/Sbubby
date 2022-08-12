@@ -13,9 +13,11 @@
 #include <mpv/render_gl.h>
 
 #define CMD_BUF_MAX 1024
+#define SUB_FNAME "out.srt"
 
 static char cmd_buf[CMD_BUF_MAX];
 static int insert_mode = 0;
+static char *main_sub = NULL;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -52,8 +54,8 @@ static void toggle_pause()
 
 static void exact_seek(double quantifier, char *flag)
 {
-    char target[50];
-    snprintf(target, 50, "%f", quantifier);
+    char target[64];
+    snprintf(target, 64, "%f", quantifier);
     const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
     mpv_command_async(mpv, 0, cmd_seek);
 }
@@ -74,32 +76,94 @@ static void refresh_title()
     strcat(title, cmd_buf);
     SDL_SetWindowTitle(window, title);
 }
+
 static void clear_cmd_buf()
 {
     cmd_buf[0] = 0;
 }
 
+static void pop_cmd_buf()
+{
+    int buf_len = strlen(cmd_buf);
+    if (buf_len)
+    {
+        cmd_buf[buf_len - 1] = 0;
+    }
+}
+
+void sub_add(char *fname)
+{
+    if (!main_sub)
+    {
+        const char *cmd[] = {"sub-add", fname, NULL};
+        mpv_command_async(mpv, 0, cmd);
+        main_sub = fname;
+    }
+}
+static void process_ex()
+{
+    if (cmd_buf[0] == ':')
+    {
+        char *ex_buf = cmd_buf + 1;
+        struct slre_cap caps[1];
+        // printf("ex_buf: %s;\n", ex_buf);
+        if (slre_match("^([a-zA-Z]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
+        {
+            if (caps[0].len)
+            {
+                if (!strcmp(caps[0].ptr, "w"))
+                {
+                    printf("save\n");
+                }
+                else if (!strcmp(caps[0].ptr, "q"))
+                {
+                    printf("quit\n");
+                }
+            }
+        }
+        else if (slre_match("^([0-9]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
+        {
+            if (caps[0].len)
+            {
+                long quantifier = strtol(caps[0].ptr, NULL, 10);
+                exact_seek(quantifier, "absolute");
+            }
+        }
+    }
+    clear_cmd_buf();
+    refresh_title();
+}
+
 static void process_cmd(char *c)
 {
     strcat(cmd_buf, c);
+    if (cmd_buf[0] == ':')
+    {
+        goto end;
+    }
     struct slre_cap caps[2];
-    // ^(:)?(\\d*)?([a-zA-Z\\. ]*)
-    if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
+    if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
         long quantifier = 1L;
-        // char quantifier[CMD_BUF_MAX] = "1";
         printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
-            // strncpy(quantifier, caps[0].ptr, caps[0].len);
             quantifier = strtol(caps[0].ptr, NULL, 10);
         }
-        // printf("%ld\n", quantifier);
-        // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
+        printf("%ld\n", quantifier);
+        printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
         {
             toggle_pause();
+        }
+        else if (strstr(caps[1].ptr, "."))
+        {
+            // repeat
+        }
+        else if (strstr(caps[1].ptr, "i"))
+        {
+            insert_mode = 1;
         }
         else if (strstr(caps[1].ptr, "j"))
         {
@@ -121,6 +185,10 @@ static void process_cmd(char *c)
         {
             exact_seek(0.0, "absolute");
         }
+        else if (strstr(caps[1].ptr, "dd"))
+        {
+            printf("delete\n");
+        }
         else
         {
             goto end;
@@ -129,10 +197,26 @@ static void process_cmd(char *c)
     }
     else
     {
+        // No match
         printf("Error parsing [%s]\n", cmd_buf);
+        clear_cmd_buf();
     }
 end:
     refresh_title();
+}
+
+void sub_reload()
+{
+    const char *cmd[] = {"sub-reload", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void insert_text(char *text)
+{
+    FILE *pFile = fopen(SUB_FNAME, "a");
+    fputs(text, pFile);
+    fclose(pFile);
+    sub_reload();
 }
 
 int main(int argc, char *argv[])
@@ -213,7 +297,7 @@ int main(int argc, char *argv[])
     const char *cmd[] = {"loadfile", argv[1], NULL};
     mpv_command_async(mpv, 0, cmd);
 
-    toggle_pause();
+    // toggle_pause();
     SDL_StartTextInput();
 
     while (1)
@@ -231,13 +315,48 @@ int main(int argc, char *argv[])
                 redraw = 1;
             break;
         case SDL_TEXTINPUT:
-            process_cmd(event.text.text);
+            if (insert_mode)
+            {
+                insert_text(event.text.text);
+            }
+            else
+            {
+                process_cmd(event.text.text);
+            }
             break;
         case SDL_KEYDOWN:
             if (event.key.keysym.sym == SDLK_ESCAPE)
             {
-                clear_cmd_buf();
+                if (insert_mode)
+                {
+                    insert_mode = 0;
+                }
+                else
+                {
+                    clear_cmd_buf();
+                }
                 refresh_title();
+            }
+            else if (event.key.keysym.sym == SDLK_BACKSPACE)
+            {
+                if (insert_mode)
+                {
+                }
+                else
+                {
+                    pop_cmd_buf();
+                    refresh_title();
+                }
+            }
+            else if (event.key.keysym.sym == SDLK_RETURN)
+            {
+                if (insert_mode)
+                {
+                }
+                else
+                {
+                    process_ex();
+                }
             }
             break;
         // if (event.key.keysym.sym == SDLK_s)
@@ -278,6 +397,8 @@ int main(int argc, char *argv[])
                 while (1)
                 {
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
+                    if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
+                        sub_add(SUB_FNAME);
                     if (mp_event->event_id == MPV_EVENT_NONE)
                         break;
                     if (mp_event->event_id == MPV_EVENT_LOG_MESSAGE)
