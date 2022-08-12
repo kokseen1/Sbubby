@@ -15,6 +15,16 @@
 #define CMD_BUF_MAX 1024
 #define SUB_FNAME "out.srt"
 
+typedef struct
+{
+    char start[16];
+    char end[16];
+    char text[CMD_BUF_MAX];
+} Sub;
+
+static char ts_hhmmss[32];
+static char *ts_s[32];
+
 static char cmd_buf[CMD_BUF_MAX];
 static int insert_mode = 0;
 static char *main_sub = NULL;
@@ -161,6 +171,9 @@ static void process_cmd(char *c)
         {
             // repeat
         }
+        else if (strstr(caps[1].ptr, "a"))
+        {
+        }
         else if (strstr(caps[1].ptr, "i"))
         {
             insert_mode = 1;
@@ -242,7 +255,7 @@ int main(int argc, char *argv[])
 
     window =
         SDL_CreateWindow("hi", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         640, 480, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                         500, 500, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window)
         die("failed to create SDL window");
 
@@ -370,17 +383,6 @@ int main(int argc, char *argv[])
         //     printf("attempting to save screenshot to %s\n", cmd_scr[1]);
         //     mpv_command_async(mpv, 0, cmd_scr);
         // }
-        // if (event.key.keysym.sym == SDLK_j)
-        // {
-        //     const char *cmd_pause[] = {"seek", "-1", "exact", NULL};
-        //     mpv_command_async(mpv, 0, cmd_pause);
-        // }
-        // if (event.key.keysym.sym == SDLK_k)
-        // {
-        //     const char *cmd_pause[] = {"seek", "1", "exact", NULL};
-        //     mpv_command_async(mpv, 0, cmd_pause);
-        // }
-        // break;
         default:
             // Happens when there is new work for the render thread (such as
             // rendering a new video frame or redrawing it).
@@ -399,6 +401,27 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                         sub_add(SUB_FNAME);
+                    if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
+                    {
+                        mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
+
+                        if (!strcmp(evp->name, "time-pos"))
+                        {
+                            if (evp->format == MPV_FORMAT_OSD_STRING)
+                            {
+                                strncpy(ts_hhmmss, *(char **)(evp->data), 32);
+                                // ts_hhmmss = *(char **)(evp->data);
+                                // printf("ts_hhmmss: %s\n", ts_hhmmss);
+                            }
+                            else if (evp->format == MPV_FORMAT_STRING)
+                            {
+                                strncpy(ts_s, *(char **)(evp->data), 32);
+                                // ts_s = *(char **)(evp->data);
+                                // printf("ts_s: %s\n", ts_s);
+                            }
+                        }
+                        // printf("ts: %s\n", *(char **)(evp->data));
+                    }
                     if (mp_event->event_id == MPV_EVENT_NONE)
                         break;
                     if (mp_event->event_id == MPV_EVENT_LOG_MESSAGE)
@@ -419,6 +442,12 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
+            // printf("ts_s: %s\n", ts_s);
+            // printf("ts_hhmmss: %s\n", ts_hhmmss);
+            // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_STRING);
+            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_STRING);
+            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_OSD_STRING);
+
             int w, h;
             SDL_GetWindowSize(window, &w, &h);
             mpv_render_param params[] = {
