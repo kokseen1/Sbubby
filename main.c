@@ -50,8 +50,10 @@ static void toggle_pause()
     mpv_command_async(mpv, 0, cmd_pause);
 }
 
-static void exact_seek(char *target, char *flag)
+static void exact_seek(double quantifier, char *flag)
 {
+    char target[50];
+    snprintf(target, 50, "%f", quantifier);
     const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
     mpv_command_async(mpv, 0, cmd_seek);
 }
@@ -84,15 +86,15 @@ static void process_cmd(char *c)
     // ^(:)?(\\d*)?([a-zA-Z\\. ]*)
     if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
-        // long quantifier = 1L;
-        char quantifier[CMD_BUF_MAX] = "1";
-        // printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
+        long quantifier = 1L;
+        // char quantifier[CMD_BUF_MAX] = "1";
+        printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
-            strncpy(quantifier, caps[0].ptr, caps[0].len);
-            // quantifier = strtol(caps[0].ptr, NULL, 10);
+            // strncpy(quantifier, caps[0].ptr, caps[0].len);
+            quantifier = strtol(caps[0].ptr, NULL, 10);
         }
-        printf("%s\n", quantifier);
+        // printf("%ld\n", quantifier);
         // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
@@ -101,17 +103,23 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "j"))
         {
-            char neg_q[CMD_BUF_MAX] = "-";
-            strcat(neg_q, quantifier);
-            exact_seek(neg_q, "relative");
+            exact_seek(quantifier * -1, "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
             exact_seek(quantifier, "relative");
         }
+        else if (strstr(caps[1].ptr, "J"))
+        {
+            exact_seek(quantifier * -0.1, "relative");
+        }
+        else if (strstr(caps[1].ptr, "K"))
+        {
+            exact_seek(quantifier * 0.1, "relative");
+        }
         else if (strstr(caps[1].ptr, "gg"))
         {
-            exact_seek("0", "absolute");
+            exact_seek(0.0, "absolute");
         }
         else
         {
