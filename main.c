@@ -23,7 +23,7 @@ typedef struct
 } Sub;
 
 static char ts_hhmmss[32];
-static char *ts_s[32];
+static char ts_s[32];
 
 static char cmd_buf[CMD_BUF_MAX];
 static int insert_mode = 0;
@@ -232,6 +232,16 @@ void insert_text(char *text)
     sub_reload();
 }
 
+void get_full_ts(char *ts_full)
+{
+    char *pos = strchr(ts_s, '.');
+    if (pos)
+    {
+        strncpy(ts_full, ts_hhmmss, 32);
+        strcat(ts_full, pos);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (argc != 2)
@@ -409,18 +419,21 @@ int main(int argc, char *argv[])
                         {
                             if (evp->format == MPV_FORMAT_OSD_STRING)
                             {
-                                strncpy(ts_hhmmss, *(char **)(evp->data), 32);
-                                // ts_hhmmss = *(char **)(evp->data);
-                                // printf("ts_hhmmss: %s\n", ts_hhmmss);
+                                char *value = *(char **)(evp->data);
+                                if (value)
+                                {
+                                    strncpy(ts_hhmmss, value, 32);
+                                }
                             }
                             else if (evp->format == MPV_FORMAT_STRING)
                             {
-                                strncpy(ts_s, *(char **)(evp->data), 32);
-                                // ts_s = *(char **)(evp->data);
-                                // printf("ts_s: %s\n", ts_s);
+                                char *value = *(char **)(evp->data);
+                                if (value)
+                                {
+                                    strncpy(ts_s, value, 32);
+                                }
                             }
                         }
-                        // printf("ts: %s\n", *(char **)(evp->data));
                     }
                     if (mp_event->event_id == MPV_EVENT_NONE)
                         break;
@@ -436,14 +449,18 @@ int main(int argc, char *argv[])
                             printf("log: %s", msg->text);
                         continue;
                     }
-                    printf("event: %s\n", mpv_event_name(mp_event->event_id));
+                    // printf("event: %s\n", mpv_event_name(mp_event->event_id));
                 }
             }
         }
         if (redraw)
         {
-            // printf("ts_s: %s\n", ts_s);
-            // printf("ts_hhmmss: %s\n", ts_hhmmss);
+            printf("ts_s: %s\n", ts_s);
+            printf("ts_hhmmss: %s\n", ts_hhmmss);
+            char ts_full[32];
+            get_full_ts(ts_full);
+            printf("f: %s\n", ts_full);
+
             // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_STRING);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_STRING);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_OSD_STRING);
