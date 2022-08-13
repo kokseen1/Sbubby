@@ -98,7 +98,7 @@ static void exact_seek_d(double value, char *flag)
     exact_seek(target, flag);
 }
 
-void get_full_ts(char *ts_full)
+static void get_full_ts(char *ts_full)
 {
     // TODO (trivial): use comma as separator
     char *pos = strchr(ts_s_str, '.');
@@ -126,19 +126,19 @@ static void refresh_title()
     SDL_SetWindowTitle(window, title);
 }
 
-void frame_step()
+static void frame_step()
 {
     const char *cmd[] = {"frame-step", NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 
-void frame_back_step()
+static void frame_back_step()
 {
     const char *cmd[] = {"frame-back-step", NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 
-void reload_sub()
+static void reload_sub()
 {
     const char *cmd[] = {"sub-reload", NULL};
     mtx_reload++;
@@ -167,7 +167,7 @@ static void pop_char(char *text)
     }
 }
 
-void add_sub(char *fname)
+static void add_sub(char *fname)
 {
     if (!sub_fname)
     {
@@ -177,7 +177,7 @@ void add_sub(char *fname)
     }
 }
 
-void export_sub()
+static void export_sub()
 {
     if (mtx_reload)
     {
@@ -210,21 +210,22 @@ void export_sub()
     fclose(pFile);
 }
 
-void delete_sub(Sub *sub_target)
+static Sub *delete_sub(Sub *sub_target)
 {
+    Sub *sub_curr = sub_head;
     if (sub_head == sub_target)
     {
         sub_head = sub_target->next;
+        sub_curr = sub_head;
     }
     else
     {
-        Sub *sub_curr = sub_head;
         while (sub_curr)
         {
             if (!sub_curr->next)
             {
                 show_text("Target sub not found!", "100");
-                return;
+                return sub_head;
             }
 
             if (sub_curr->next == sub_target)
@@ -238,6 +239,7 @@ void delete_sub(Sub *sub_target)
     }
 
     free(sub_target);
+    return sub_curr;
 }
 
 static void export_and_reload()
@@ -272,8 +274,8 @@ static int process_ex()
             if (caps[0].len)
             {
                 // TODO: Support precise timestamps
-                long quantifier = strtol(caps[0].ptr, NULL, 10);
-                exact_seek_d(quantifier, "absolute");
+                long pos = strtol(caps[0].ptr, NULL, 10);
+                exact_seek_d(pos, "absolute");
             }
         }
     }
@@ -488,8 +490,7 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                delete_sub(sub_focused);
-                sub_focused = NULL;
+                sub_focused = delete_sub(sub_focused);
                 export_and_reload();
             }
         }
@@ -509,7 +510,7 @@ end:
     refresh_title();
 }
 
-void insert_text(char *text)
+static void insert_text(char *text)
 {
     if (sub_focused)
     {
@@ -518,7 +519,7 @@ void insert_text(char *text)
     }
 }
 
-void pop_word(char *text)
+static void pop_word(char *text)
 {
     int len = strlen(text);
     if (len)
