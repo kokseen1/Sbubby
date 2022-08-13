@@ -44,11 +44,6 @@ static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
 static mpv_handle *mpv = NULL;
 
-static char *ptr_max(char *ptr1, char *ptr2)
-{
-    return ptr1 > ptr2 ? ptr1 : ptr2;
-}
-
 static void die(const char *msg)
 {
     fprintf(stderr, "%s\n", msg);
@@ -70,6 +65,17 @@ static void on_mpv_render_update(void *ctx)
 {
     SDL_Event event = {.type = wakeup_on_mpv_render_update};
     SDL_PushEvent(&event);
+}
+
+static char *ptr_max(char *ptr1, char *ptr2)
+{
+    return ptr1 > ptr2 ? ptr1 : ptr2;
+}
+
+static void show_text(char *text, char *duration)
+{
+    const char *cmd[] = {"show-text", text, duration, NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
 static void toggle_pause()
@@ -144,7 +150,7 @@ static void pop_char(char *text)
     }
     else
     {
-        printf("String is empty!\n");
+        show_text("String is empty!", "100");
     }
 }
 
@@ -197,7 +203,6 @@ void delete_sub(Sub *sub_target)
     if (sub_head == sub_target)
     {
         sub_head = sub_target->next;
-        printf("Deleting head\n");
     }
     else
     {
@@ -206,7 +211,7 @@ void delete_sub(Sub *sub_target)
         {
             if (!sub_curr->next)
             {
-                printf("Target sub not found!\n");
+                show_text("Target sub not found!", "100");
                 return;
             }
 
@@ -229,7 +234,7 @@ static void export_and_reload()
     reload_sub();
 }
 
-static void process_ex()
+static int process_ex()
 {
     if (cmd_buf[0] == ':')
     {
@@ -246,7 +251,7 @@ static void process_ex()
                 }
                 else if (!strcmp(caps[0].ptr, "q"))
                 {
-                    exit(0);
+                    return -1;
                 }
             }
         }
@@ -262,6 +267,8 @@ static void process_ex()
     }
     clear_cmd_buf();
     refresh_title();
+
+    return 0;
 }
 
 static Sub *alloc_sub()
@@ -298,6 +305,13 @@ static void insert_ordered(Sub *sub_new)
             sub_curr = sub_curr->next;
         }
     }
+}
+
+static void init()
+{
+    mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
+    add_sub(DEFAULT_SUB_FNAME);
+    SDL_StartTextInput();
 }
 
 static void process_cmd(char *c)
@@ -337,7 +351,6 @@ static void process_cmd(char *c)
             insert_ordered(sub_new);
 
             sub_focused = sub_new;
-            printf("[NEW SUB] %s\n", sub_new->start);
             insert_mode = 1;
         }
         else if (strstr(caps[1].ptr, "s"))
@@ -485,7 +498,7 @@ int main(int argc, char *argv[])
         die("SDL init failed");
 
     window =
-        SDL_CreateWindow("hi", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+        SDL_CreateWindow("Sbubby", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                          640, 360, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window)
         die("failed to create SDL window");
@@ -623,7 +636,10 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
-                    process_ex();
+                    if (process_ex() == -1)
+                    {
+                        goto done;
+                    }
                 }
             }
             break;
@@ -645,9 +661,7 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
-                        mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
-                        add_sub(DEFAULT_SUB_FNAME);
-                        SDL_StartTextInput();
+                        init();
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
