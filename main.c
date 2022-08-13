@@ -73,12 +73,17 @@ static void toggle_pause()
     mpv_command_async(mpv, 0, cmd_pause);
 }
 
-static void exact_seek(double quantifier, char *flag)
+static void exact_seek(char *target, char *flag)
 {
-    char target[SMALL_BUF_MAX];
-    snprintf(target, sizeof(target), "%f", quantifier);
     const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
     mpv_command_async(mpv, 0, cmd_seek);
+}
+
+static void exact_seek_d(double value, char *flag)
+{
+    char target[SMALL_BUF_MAX];
+    snprintf(target, sizeof(target), "%f", value);
+    exact_seek(target, flag);
 }
 
 void get_full_ts(char *ts_full)
@@ -220,7 +225,7 @@ static void process_ex()
                 }
                 else if (!strcmp(caps[0].ptr, "q"))
                 {
-                    printf("quit\n");
+                    exit(0);
                 }
             }
         }
@@ -228,8 +233,9 @@ static void process_ex()
         {
             if (caps[0].len)
             {
+                // TODO: Support precise timestamps
                 long quantifier = strtol(caps[0].ptr, NULL, 10);
-                exact_seek(quantifier, "absolute");
+                exact_seek_d(quantifier, "absolute");
             }
         }
     }
@@ -321,6 +327,20 @@ static void process_cmd(char *c)
         {
             insert_mode = 1;
         }
+        else if (strstr(caps[1].ptr, "o"))
+        {
+            if (sub_focused)
+            {
+                exact_seek(sub_focused->start, "absolute");
+            }
+        }
+        else if (strstr(caps[1].ptr, "O"))
+        {
+            if (sub_focused)
+            {
+                exact_seek(sub_focused->end, "absolute");
+            }
+        }
         else if (strstr(caps[1].ptr, "h"))
         {
             if (sub_focused)
@@ -349,23 +369,23 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "j"))
         {
-            exact_seek(quantifier * -3, "relative");
+            exact_seek_d(quantifier * -3, "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
-            exact_seek(quantifier * 3, "relative");
+            exact_seek_d(quantifier * 3, "relative");
         }
         else if (strstr(caps[1].ptr, "J"))
         {
-            exact_seek(quantifier * -0.1, "relative");
+            exact_seek_d(quantifier * -0.1, "relative");
         }
         else if (strstr(caps[1].ptr, "K"))
         {
-            exact_seek(quantifier * 0.1, "relative");
+            exact_seek_d(quantifier * 0.1, "relative");
         }
         else if (strstr(caps[1].ptr, "gg"))
         {
-            exact_seek(0.0, "absolute");
+            exact_seek("0", "absolute");
         }
         else if (strstr(caps[1].ptr, "dd"))
         {
