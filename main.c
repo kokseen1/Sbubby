@@ -20,14 +20,16 @@
 typedef struct Sub
 {
     char start[SMALL_BUF_MAX];
+    double start_d;
     char end[SMALL_BUF_MAX];
     char text[CMD_BUF_MAX];
     struct Sub *next;
 } Sub;
 
-static char ts_hhmmss[SMALL_BUF_MAX];
-static char ts_s[SMALL_BUF_MAX];
 static char duration[SMALL_BUF_MAX];
+static char ts_hhmmss[SMALL_BUF_MAX];
+static char ts_s_str[SMALL_BUF_MAX];
+static double ts_s_d;
 
 static char cmd_buf[CMD_BUF_MAX];
 
@@ -82,7 +84,7 @@ static void exact_seek(double quantifier, char *flag)
 void get_full_ts(char *ts_full)
 {
     // TODO (trivial): use comma as separator
-    char *pos = strchr(ts_s, '.');
+    char *pos = strchr(ts_s_str, '.');
     if (pos)
     {
         strncpy(ts_full, ts_hhmmss, SMALL_BUF_MAX);
@@ -139,6 +141,32 @@ void sub_add(char *fname)
         main_sub_fname = fname;
     }
 }
+
+void export_sub()
+{
+    if (mtx_reload)
+    {
+        // Don't touch file if reload is already in progress
+        return;
+    }
+
+    int i = 1;
+    Sub *sub_curr = sub_head;
+
+    FILE *pFile = fopen(SUB_FNAME, "w");
+    while (sub_curr)
+    {
+        fprintf(pFile, "%d\n", i);
+        fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
+        fprintf(pFile, "%s\n\n", sub_curr->text);
+
+        sub_curr = sub_curr->next;
+        i++;
+    }
+
+    fclose(pFile);
+}
+
 static void process_ex()
 {
     if (cmd_buf[0] == ':')
@@ -204,17 +232,43 @@ static void process_cmd(char *c)
         {
             Sub *sub_new = (Sub *)calloc(1, sizeof(Sub));
             get_full_ts(sub_new->start);
+            sub_new->start_d = ts_s_d;
             sprintf(sub_new->end, "%s.000", duration);
-            // strcpy(sub_new->end, duration);
+            // printf("d: %f", sub_new->start_d);
             if (!sub_head)
             {
                 // First item
                 sub_head = sub_new;
                 sub_head->next = NULL;
             }
+            else if (sub_new->start_d <= sub_head->start_d)
+            {
+                // Insert at beginning (new head)
+                sub_new->next = sub_head;
+                sub_head = sub_new;
+            }
             else
             {
                 // Ordered insert
+                Sub *sub_curr = sub_head;
+                while (sub_curr)
+                {
+                    if (!sub_curr->next) // Can be OR'd
+                    {
+                        // Insert at end
+                        sub_new->next = sub_curr->next;
+                        sub_curr->next = sub_new;
+                        break;
+                    }
+                    if (sub_curr->next->start_d > sub_new->start_d)
+                    {
+                        // printf("%f > %f\n", sub_curr->next->start_d, sub_new->start_d);
+                        sub_new->next = sub_curr->next;
+                        sub_curr->next = sub_new;
+                        break;
+                    }
+                    sub_curr = sub_curr->next;
+                }
             }
             sub_focused = sub_new;
             printf("[NEW SUB] %s\n", sub_new->start);
@@ -227,6 +281,38 @@ static void process_cmd(char *c)
         else if (strstr(caps[1].ptr, "i"))
         {
             insert_mode = 1;
+        }
+        // else if (strstr(caps[1].ptr, "b"))
+        // {
+        //     if (sub_focused)
+        //     {
+        //         char temp_text[CMD_BUF_MAX];
+        //         strcpy(temp_text, sub_focused->text);
+        //         sprintf(sub_focused->text, "<b>%s</b>", temp_text);
+        //         export_sub();
+        //         sub_reload();
+        //     }
+        // }
+        else if (strstr(caps[1].ptr, "h"))
+        {
+            // set start
+            if (sub_focused)
+            {
+                get_full_ts(sub_focused->start);
+                sub_focused->start_d = ts_s_d;
+                export_sub();
+                sub_reload();
+            }
+        }
+        else if (strstr(caps[1].ptr, "l"))
+        {
+            // set end
+            if (sub_focused)
+            {
+                get_full_ts(sub_focused->end);
+                export_sub();
+                sub_reload();
+            }
         }
         else if (strstr(caps[1].ptr, "j"))
         {
@@ -266,31 +352,6 @@ static void process_cmd(char *c)
     }
 end:
     refresh_title();
-}
-
-void export_sub()
-{
-    if (mtx_reload)
-    {
-        // Don't touch file if reload is already in progress
-        return;
-    }
-
-    int i = 1;
-    Sub *sub_curr = sub_head;
-
-    FILE *pFile = fopen(SUB_FNAME, "w");
-    while (sub_curr)
-    {
-        fprintf(pFile, "%d\n", i);
-        fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
-        fprintf(pFile, "%s\n\n", sub_curr->text);
-
-        sub_curr = sub_curr->next;
-        i++;
-    }
-
-    fclose(pFile);
 }
 
 void insert_text(char *text)
@@ -501,7 +562,15 @@ int main(int argc, char *argv[])
                                 char *value = *(char **)(evp->data);
                                 if (value)
                                 {
-                                    strncpy(ts_s, value, sizeof(ts_s));
+                                    strncpy(ts_s_str, value, sizeof(ts_s_str));
+                                }
+                            }
+                            else if (evp->format == MPV_FORMAT_DOUBLE)
+                            {
+                                double value = *(double *)(evp->data);
+                                if (value)
+                                {
+                                    ts_s_d = value;
                                 }
                             }
                         }
@@ -538,11 +607,12 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
-            // printf("ts_s: %s\n", ts_s);
+            // printf("ts_s_str: %s\n", ts_s_str);
             // printf("ts_hhmmss: %s\n", ts_hhmmss);
 
             // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_STRING);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_STRING);
+            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_OSD_STRING);
 
             int w, h;
