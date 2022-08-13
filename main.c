@@ -152,18 +152,27 @@ void export_sub()
         return;
     }
 
-    int i = 1;
-    Sub *sub_curr = sub_head;
-
     FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
-    while (sub_curr)
-    {
-        fprintf(pFile, "%d\n", i);
-        fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
-        fprintf(pFile, "%s\n\n", sub_curr->text);
 
-        sub_curr = sub_curr->next;
-        i++;
+    if (sub_head)
+    {
+        int i = 1;
+        Sub *sub_curr = sub_head;
+
+        while (sub_curr)
+        {
+            fprintf(pFile, "%d\n", i);
+            fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
+            fprintf(pFile, "%s\n\n", sub_curr->text);
+
+            sub_curr = sub_curr->next;
+            i++;
+        }
+    }
+    else
+    {
+        // Placeholder
+        fprintf(pFile, "1\n00:00:00.000 --> 00:00:00.000");
     }
 
     fclose(pFile);
