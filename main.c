@@ -1,5 +1,3 @@
-// Build with: gcc -o main main.c `pkg-config --libs --cflags mpv sdl2` -std=c99
-
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +13,7 @@
 #define REPLY_USERDATA_SUB_RELOAD 8000
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
-#define SUB_FNAME "out.srt"
+#define DEFAULT_SUB_FNAME "out.srt"
 
 typedef struct Sub
 {
@@ -36,7 +34,7 @@ static char cmd_buf[CMD_BUF_MAX];
 static int mtx_reload = 0;
 static int insert_mode = 0;
 
-static char *main_sub_fname = NULL;
+static char *sub_fname = NULL;
 static Sub *sub_head = NULL;
 static Sub *sub_focused = NULL;
 
@@ -130,19 +128,19 @@ static void clear_cmd_buf()
 static void pop_cmd_buf()
 {
     int buf_len = strlen(cmd_buf);
-    if (buf_len)
+    if (buf_len > 0)
     {
         cmd_buf[buf_len - 1] = 0;
     }
 }
 
-void sub_add(char *fname)
+void add_sub(char *fname)
 {
-    if (!main_sub_fname)
+    if (!sub_fname)
     {
         const char *cmd[] = {"sub-add", fname, NULL};
         mpv_command_async(mpv, 0, cmd);
-        main_sub_fname = fname;
+        sub_fname = fname;
     }
 }
 
@@ -157,7 +155,7 @@ void export_sub()
     int i = 1;
     Sub *sub_curr = sub_head;
 
-    FILE *pFile = fopen(SUB_FNAME, "w");
+    FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
     while (sub_curr)
     {
         fprintf(pFile, "%d\n", i);
@@ -243,7 +241,7 @@ static void process_ex()
     refresh_title();
 }
 
-static Sub *sub_alloc()
+static Sub *alloc_sub()
 {
     return (Sub *)calloc(1, sizeof(Sub));
 }
@@ -308,7 +306,7 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "a"))
         {
-            Sub *sub_new = sub_alloc();
+            Sub *sub_new = alloc_sub();
             get_full_ts(sub_new->start);
             sub_new->start_d = ts_s_d;
             sprintf(sub_new->end, "%s.000", duration);
@@ -345,7 +343,7 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                Sub *sub_new = sub_alloc();
+                Sub *sub_new = alloc_sub();
 
                 get_full_ts(sub_new->start);
                 sub_new->start_d = ts_s_d;
@@ -540,11 +538,15 @@ int main(int argc, char *argv[])
             {
                 if (insert_mode)
                 {
-                    // Backspace (pop) sub char
                     if (sub_focused)
                     {
                         int len = strlen(sub_focused->text);
-                        if (len > 0)
+                        if (len > 1 && sub_focused->text[len - 2] == '\n')
+                        {
+                            sub_focused->text[len - 2] = 0;
+                            export_and_reload();
+                        }
+                        else if (len > 0)
                         {
                             sub_focused->text[len - 1] = 0;
                             export_and_reload();
@@ -565,7 +567,7 @@ int main(int argc, char *argv[])
             {
                 if (insert_mode)
                 {
-                    // Sub insert newline (\n)
+                    insert_text("\n");
                 }
                 else
                 {
@@ -573,17 +575,6 @@ int main(int argc, char *argv[])
                 }
             }
             break;
-        // if (event.key.keysym.sym == SDLK_s)
-        // {
-        //     // Also requires MPV_RENDER_PARAM_ADVANCED_CONTROL if you want
-        //     // screenshots to be rendered on GPU (like --vo=gpu would do).
-        //     const char *cmd_scr[] = {"screenshot-to-file",
-        //                              "screenshot.png",
-        //                              "window",
-        //                              NULL};
-        //     printf("attempting to save screenshot to %s\n", cmd_scr[1]);
-        //     mpv_command_async(mpv, 0, cmd_scr);
-        // }
         default:
             // Happens when there is new work for the render thread (such as
             // rendering a new video frame or redrawing it).
@@ -603,7 +594,7 @@ int main(int argc, char *argv[])
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
                         mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
-                        sub_add(SUB_FNAME);
+                        add_sub(DEFAULT_SUB_FNAME);
                         SDL_StartTextInput();
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
