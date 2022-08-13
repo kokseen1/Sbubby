@@ -110,9 +110,8 @@ static void refresh_title()
     SDL_SetWindowTitle(window, title);
 }
 
-void sub_reload()
+void reload_sub()
 {
-    // printf("Reloading\n");
     const char *cmd[] = {"sub-reload", NULL};
     mtx_reload++;
     mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
@@ -167,6 +166,43 @@ void export_sub()
     fclose(pFile);
 }
 
+void delete_sub(Sub *sub_target)
+{
+    if (sub_head == sub_target)
+    {
+        sub_head = sub_target->next;
+        printf("Deleting head\n");
+    }
+    else
+    {
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (!sub_curr->next)
+            {
+                printf("Target sub not found!\n");
+                return;
+            }
+
+            if (sub_curr->next == sub_target)
+            {
+                sub_curr->next = sub_target->next;
+                break;
+            }
+
+            sub_curr = sub_curr->next;
+        }
+    }
+
+    free(sub_target);
+}
+
+static void export_and_reload()
+{
+    export_sub();
+    reload_sub();
+}
+
 static void process_ex()
 {
     if (cmd_buf[0] == ':')
@@ -201,6 +237,42 @@ static void process_ex()
     refresh_title();
 }
 
+static Sub *sub_alloc()
+{
+    return (Sub *)calloc(1, sizeof(Sub));
+}
+
+static void insert_ordered(Sub *sub_new)
+{
+    if (!sub_head)
+    {
+        // First item
+        sub_head = sub_new;
+        sub_head->next = NULL;
+    }
+    else if (sub_new->start_d <= sub_head->start_d)
+    {
+        // Insert at beginning (new head)
+        sub_new->next = sub_head;
+        sub_head = sub_new;
+    }
+    else
+    {
+        // Ordered insert
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (!sub_curr->next || sub_curr->next->start_d > sub_new->start_d)
+            {
+                sub_new->next = sub_curr->next;
+                sub_curr->next = sub_new;
+                break;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+}
+
 static void process_cmd(char *c)
 {
     strcat(cmd_buf, c);
@@ -230,97 +302,58 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "a"))
         {
-            Sub *sub_new = (Sub *)calloc(1, sizeof(Sub));
+            Sub *sub_new = sub_alloc();
             get_full_ts(sub_new->start);
             sub_new->start_d = ts_s_d;
             sprintf(sub_new->end, "%s.000", duration);
-            // printf("d: %f", sub_new->start_d);
-            if (!sub_head)
-            {
-                // First item
-                sub_head = sub_new;
-                sub_head->next = NULL;
-            }
-            else if (sub_new->start_d <= sub_head->start_d)
-            {
-                // Insert at beginning (new head)
-                sub_new->next = sub_head;
-                sub_head = sub_new;
-            }
-            else
-            {
-                // Ordered insert
-                Sub *sub_curr = sub_head;
-                while (sub_curr)
-                {
-                    if (!sub_curr->next) // Can be OR'd
-                    {
-                        // Insert at end
-                        sub_new->next = sub_curr->next;
-                        sub_curr->next = sub_new;
-                        break;
-                    }
-                    if (sub_curr->next->start_d > sub_new->start_d)
-                    {
-                        // printf("%f > %f\n", sub_curr->next->start_d, sub_new->start_d);
-                        sub_new->next = sub_curr->next;
-                        sub_curr->next = sub_new;
-                        break;
-                    }
-                    sub_curr = sub_curr->next;
-                }
-            }
+
+            insert_ordered(sub_new);
+
             sub_focused = sub_new;
             printf("[NEW SUB] %s\n", sub_new->start);
             insert_mode = 1;
         }
         else if (strstr(caps[1].ptr, "s"))
         {
-            sub_reload();
+            reload_sub();
         }
         else if (strstr(caps[1].ptr, "i"))
         {
             insert_mode = 1;
         }
-        // else if (strstr(caps[1].ptr, "b"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         char temp_text[CMD_BUF_MAX];
-        //         strcpy(temp_text, sub_focused->text);
-        //         sprintf(sub_focused->text, "<b>%s</b>", temp_text);
-        //         export_sub();
-        //         sub_reload();
-        //     }
-        // }
         else if (strstr(caps[1].ptr, "h"))
         {
-            // set start
             if (sub_focused)
             {
-                get_full_ts(sub_focused->start);
-                sub_focused->start_d = ts_s_d;
-                export_sub();
-                sub_reload();
+                Sub *sub_new = sub_alloc();
+
+                get_full_ts(sub_new->start);
+                sub_new->start_d = ts_s_d;
+                strncpy(sub_new->end, sub_focused->end, sizeof(sub_new->end));
+                strncpy(sub_new->text, sub_focused->text, sizeof(sub_new->text));
+
+                insert_ordered(sub_new);
+
+                delete_sub(sub_focused);
+                sub_focused = sub_new;
+                export_and_reload();
             }
         }
         else if (strstr(caps[1].ptr, "l"))
         {
-            // set end
             if (sub_focused)
             {
                 get_full_ts(sub_focused->end);
-                export_sub();
-                sub_reload();
+                export_and_reload();
             }
         }
         else if (strstr(caps[1].ptr, "j"))
         {
-            exact_seek(quantifier * -1, "relative");
+            exact_seek(quantifier * -3, "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
-            exact_seek(quantifier, "relative");
+            exact_seek(quantifier * 3, "relative");
         }
         else if (strstr(caps[1].ptr, "J"))
         {
@@ -336,7 +369,12 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "dd"))
         {
-            printf("delete\n");
+            if (sub_focused)
+            {
+                delete_sub(sub_focused);
+                sub_focused = NULL;
+                export_and_reload();
+            }
         }
         else
         {
@@ -359,8 +397,7 @@ void insert_text(char *text)
     if (sub_focused)
     {
         strcat(sub_focused->text, text);
-        export_sub();
-        sub_reload();
+        export_and_reload();
     }
 }
 
@@ -484,6 +521,19 @@ int main(int argc, char *argv[])
                 if (insert_mode)
                 {
                     // Backspace (pop) sub char
+                    if (sub_focused)
+                    {
+                        int len = strlen(sub_focused->text);
+                        if (len > 0)
+                        {
+                            sub_focused->text[len - 1] = 0;
+                            export_and_reload();
+                        }
+                        else
+                        {
+                            printf("String is empty!\n");
+                        }
+                    }
                 }
                 else
                 {
