@@ -346,13 +346,13 @@ static void process_cmd(char *c)
     struct slre_cap caps[2];
     if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
-        long quantifier = 1L;
+        long q = 0;
         // printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
-            quantifier = strtol(caps[0].ptr, NULL, 10);
+            q = strtol(caps[0].ptr, NULL, 10);
         }
-        // printf("%ld\n", quantifier);
+        // printf("%ld\n", q);
         // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
@@ -431,6 +431,8 @@ static void process_cmd(char *c)
             if (sub_focused)
             {
                 exact_seek(sub_focused->start, "absolute");
+                if (q)
+                    exact_seek_d(q * -1, "relative");
             }
         }
         else if (strstr(caps[1].ptr, "O"))
@@ -438,6 +440,8 @@ static void process_cmd(char *c)
             if (sub_focused)
             {
                 exact_seek(sub_focused->end, "absolute");
+                if (q)
+                    exact_seek_d(q * -1, "relative");
             }
         }
         else if (strstr(caps[1].ptr, "h"))
@@ -468,19 +472,19 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "j"))
         {
-            exact_seek_d(quantifier * -3, "relative");
+            q ? exact_seek_d(q * -1, "relative") : exact_seek("-3", "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
-            exact_seek_d(quantifier * 3, "relative");
+            q ? exact_seek_d(q * 1, "relative") : exact_seek("3", "relative");
         }
         else if (strstr(caps[1].ptr, "J"))
         {
-            exact_seek_d(quantifier * -0.1, "relative");
+            q ? exact_seek_d(q * -0.1, "relative") : exact_seek("-0.1", "relative");
         }
         else if (strstr(caps[1].ptr, "K"))
         {
-            exact_seek_d(quantifier * 0.1, "relative");
+            q ? exact_seek_d(q * 0.1, "relative") : exact_seek("0.1", "relative");
         }
         else if (strstr(caps[1].ptr, "gg"))
         {
@@ -773,7 +777,6 @@ int main(int argc, char *argv[])
                                 if (value)
                                 {
                                     strncpy(duration, value, sizeof(duration));
-                                    printf("Video length: %s\n", value);
                                 }
                             }
                         }
