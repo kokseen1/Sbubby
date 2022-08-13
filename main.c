@@ -105,18 +105,17 @@ void get_full_ts(char *ts_full)
 
 static void refresh_title()
 {
-    char *title;
+    char title[CMD_BUF_MAX];
+
     if (insert_mode)
     {
-        char mode[CMD_BUF_MAX] = "INSERT ";
-        title = mode;
+        sprintf(title, "INSERT %s", cmd_buf);
     }
     else
     {
-        char mode[CMD_BUF_MAX] = "NORMAL ";
-        title = mode;
+        sprintf(title, "NORMAL %s", cmd_buf);
     }
-    strcat(title, cmd_buf);
+
     SDL_SetWindowTitle(window, title);
 }
 
