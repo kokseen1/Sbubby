@@ -16,6 +16,7 @@
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
 #define DEFAULT_SUB_FNAME "out.srt"
+#define SUB_PLACEHOLDER "1\n00:00:00.000 --> 00:00:00.000\n\n\n"
 
 typedef struct Sub
 {
@@ -125,6 +126,18 @@ static void refresh_title()
     SDL_SetWindowTitle(window, title);
 }
 
+void frame_step()
+{
+    const char *cmd[] = {"frame-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void frame_back_step()
+{
+    const char *cmd[] = {"frame-back-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
 void reload_sub()
 {
     const char *cmd[] = {"sub-reload", NULL};
@@ -191,8 +204,7 @@ void export_sub()
     }
     else
     {
-        // Placeholder
-        fprintf(pFile, "1\n00:00:00.000 --> 00:00:00.000");
+        fprintf(pFile, SUB_PLACEHOLDER);
     }
 
     fclose(pFile);
@@ -307,9 +319,17 @@ static void insert_ordered(Sub *sub_new)
     }
 }
 
+static void gen_placeholder(char *fname)
+{
+    FILE *pFile = fopen(fname, "w");
+    fprintf(pFile, SUB_PLACEHOLDER);
+    fclose(pFile);
+}
+
 static void init()
 {
     mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
+    gen_placeholder(DEFAULT_SUB_FNAME);
     add_sub(DEFAULT_SUB_FNAME);
     SDL_StartTextInput();
 }
@@ -355,11 +375,54 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "s"))
         {
-            reload_sub();
+            frame_step();
+        }
+        else if (strstr(caps[1].ptr, "S"))
+        {
+            frame_back_step();
         }
         else if (strstr(caps[1].ptr, "i"))
         {
             insert_mode = 1;
+        }
+        else if (strstr(caps[1].ptr, "w"))
+        {
+            if (sub_focused)
+            {
+                if (sub_focused->next)
+                {
+                    sub_focused = sub_focused->next;
+                    exact_seek(sub_focused->start, "absolute");
+                }
+                else
+                {
+                    show_text("At last sub!\n", "100");
+                }
+            }
+        }
+        else if (strstr(caps[1].ptr, "b"))
+        {
+            if (sub_focused)
+            {
+                if (sub_focused == sub_head)
+                {
+                    show_text("At first sub!\n", "100");
+                }
+                else
+                {
+                    Sub *sub_curr = sub_head;
+                    while (sub_curr)
+                    {
+                        if (sub_curr->next == sub_focused)
+                        {
+                            sub_focused = sub_curr;
+                            exact_seek(sub_focused->start, "absolute");
+                            break;
+                        }
+                        sub_curr = sub_curr->next;
+                    }
+                }
+            }
         }
         else if (strstr(caps[1].ptr, "o"))
         {
