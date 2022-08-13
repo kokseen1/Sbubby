@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <ctype.h>
+
 #include <slre.h>
 
 #include <SDL2/SDL.h>
@@ -41,6 +43,11 @@ static Sub *sub_focused = NULL;
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
 static mpv_handle *mpv = NULL;
+
+static char *ptr_max(char *ptr1, char *ptr2)
+{
+    return ptr1 > ptr2 ? ptr1 : ptr2;
+}
 
 static void die(const char *msg)
 {
@@ -125,12 +132,20 @@ static void clear_cmd_buf()
     cmd_buf[0] = 0;
 }
 
-static void pop_cmd_buf()
+static void pop_char(char *text)
 {
-    int buf_len = strlen(cmd_buf);
-    if (buf_len > 0)
+    int len = strlen(text);
+    if (len > 1 && text[len - 2] == '\n')
     {
-        cmd_buf[buf_len - 1] = 0;
+        text[len - 2] = 0;
+    }
+    else if (len > 0)
+    {
+        text[len - 1] = 0;
+    }
+    else
+    {
+        printf("String is empty!\n");
     }
 }
 
@@ -428,6 +443,27 @@ void insert_text(char *text)
     }
 }
 
+void pop_word(char *text)
+{
+    int len = strlen(text);
+    if (len)
+    {
+        while (isspace(text[len - 1]))
+            len--;
+        text[len] = 0;
+
+        char *pos = ptr_max(strrchr(text, ' '), strrchr(text, '\n'));
+        if (pos)
+        {
+            *(pos + 1) = 0;
+        }
+        else
+        {
+            text[0] = 0;
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     if (argc != 2)
@@ -543,32 +579,40 @@ int main(int argc, char *argv[])
                 }
                 refresh_title();
             }
+            else if (event.key.keysym.sym == SDLK_w)
+            {
+                if (insert_mode)
+                {
+                    if (sub_focused)
+                    {
+                        if (SDL_GetModState() & KMOD_CTRL)
+                        {
+                            pop_word(sub_focused->text);
+                            export_and_reload();
+                        }
+                    }
+                }
+            }
             else if (event.key.keysym.sym == SDLK_BACKSPACE)
             {
                 if (insert_mode)
                 {
                     if (sub_focused)
                     {
-                        int len = strlen(sub_focused->text);
-                        if (len > 1 && sub_focused->text[len - 2] == '\n')
+                        if (SDL_GetModState() & KMOD_CTRL)
                         {
-                            sub_focused->text[len - 2] = 0;
-                            export_and_reload();
-                        }
-                        else if (len > 0)
-                        {
-                            sub_focused->text[len - 1] = 0;
-                            export_and_reload();
+                            pop_word(sub_focused->text);
                         }
                         else
                         {
-                            printf("String is empty!\n");
+                            pop_char(sub_focused->text);
                         }
+                        export_and_reload();
                     }
                 }
                 else
                 {
-                    pop_cmd_buf();
+                    pop_char(cmd_buf);
                     refresh_title();
                 }
             }
