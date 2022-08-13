@@ -12,22 +12,31 @@
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
+#define REPLY_USERDATA_SUB_RELOAD 8000
 #define CMD_BUF_MAX 1024
+#define SMALL_BUF_MAX 32
 #define SUB_FNAME "out.srt"
 
-typedef struct
+typedef struct Sub
 {
-    char start[16];
-    char end[16];
+    char start[SMALL_BUF_MAX];
+    char end[SMALL_BUF_MAX];
     char text[CMD_BUF_MAX];
+    struct Sub *next;
 } Sub;
 
-static char ts_hhmmss[32];
-static char ts_s[32];
+static char ts_hhmmss[SMALL_BUF_MAX];
+static char ts_s[SMALL_BUF_MAX];
+static char duration[SMALL_BUF_MAX];
 
 static char cmd_buf[CMD_BUF_MAX];
+
+static int mtx_reload = 0;
 static int insert_mode = 0;
-static char *main_sub = NULL;
+
+static char *main_sub_fname = NULL;
+static Sub *sub_head = NULL;
+static Sub *sub_focused = NULL;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -64,10 +73,22 @@ static void toggle_pause()
 
 static void exact_seek(double quantifier, char *flag)
 {
-    char target[64];
-    snprintf(target, 64, "%f", quantifier);
+    char target[SMALL_BUF_MAX];
+    snprintf(target, sizeof(target), "%f", quantifier);
     const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
     mpv_command_async(mpv, 0, cmd_seek);
+}
+
+void get_full_ts(char *ts_full)
+{
+    // TODO (trivial): use comma as separator
+    char *pos = strchr(ts_s, '.');
+    if (pos)
+    {
+        strncpy(ts_full, ts_hhmmss, SMALL_BUF_MAX);
+        strncat(ts_full, pos, 4);
+        // snprintf(&ts_full[strlen(ts_full)], 5, ",%s", pos + 1);
+    }
 }
 
 static void refresh_title()
@@ -87,6 +108,14 @@ static void refresh_title()
     SDL_SetWindowTitle(window, title);
 }
 
+void sub_reload()
+{
+    // printf("Reloading\n");
+    const char *cmd[] = {"sub-reload", NULL};
+    mtx_reload++;
+    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
+}
+
 static void clear_cmd_buf()
 {
     cmd_buf[0] = 0;
@@ -103,11 +132,11 @@ static void pop_cmd_buf()
 
 void sub_add(char *fname)
 {
-    if (!main_sub)
+    if (!main_sub_fname)
     {
         const char *cmd[] = {"sub-add", fname, NULL};
         mpv_command_async(mpv, 0, cmd);
-        main_sub = fname;
+        main_sub_fname = fname;
     }
 }
 static void process_ex()
@@ -155,13 +184,13 @@ static void process_cmd(char *c)
     if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
         long quantifier = 1L;
-        printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
+        // printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
             quantifier = strtol(caps[0].ptr, NULL, 10);
         }
-        printf("%ld\n", quantifier);
-        printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
+        // printf("%ld\n", quantifier);
+        // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
         {
@@ -173,6 +202,27 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "a"))
         {
+            Sub *sub_new = (Sub *)calloc(1, sizeof(Sub));
+            get_full_ts(sub_new->start);
+            sprintf(sub_new->end, "%s.000", duration);
+            // strcpy(sub_new->end, duration);
+            if (!sub_head)
+            {
+                // First item
+                sub_head = sub_new;
+                sub_head->next = NULL;
+            }
+            else
+            {
+                // Ordered insert
+            }
+            sub_focused = sub_new;
+            printf("[NEW SUB] %s\n", sub_new->start);
+            insert_mode = 1;
+        }
+        else if (strstr(caps[1].ptr, "s"))
+        {
+            sub_reload();
         }
         else if (strstr(caps[1].ptr, "i"))
         {
@@ -218,27 +268,38 @@ end:
     refresh_title();
 }
 
-void sub_reload()
+void export_sub()
 {
-    const char *cmd[] = {"sub-reload", NULL};
-    mpv_command_async(mpv, 0, cmd);
+    if (mtx_reload)
+    {
+        // Don't touch file if reload is already in progress
+        return;
+    }
+
+    int i = 1;
+    Sub *sub_curr = sub_head;
+
+    FILE *pFile = fopen(SUB_FNAME, "w");
+    while (sub_curr)
+    {
+        fprintf(pFile, "%d\n", i);
+        fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
+        fprintf(pFile, "%s\n\n", sub_curr->text);
+
+        sub_curr = sub_curr->next;
+        i++;
+    }
+
+    fclose(pFile);
 }
 
 void insert_text(char *text)
 {
-    FILE *pFile = fopen(SUB_FNAME, "a");
-    fputs(text, pFile);
-    fclose(pFile);
-    sub_reload();
-}
-
-void get_full_ts(char *ts_full)
-{
-    char *pos = strchr(ts_s, '.');
-    if (pos)
+    if (sub_focused)
     {
-        strncpy(ts_full, ts_hhmmss, 32);
-        strcat(ts_full, pos);
+        strcat(sub_focused->text, text);
+        export_sub();
+        sub_reload();
     }
 }
 
@@ -265,7 +326,7 @@ int main(int argc, char *argv[])
 
     window =
         SDL_CreateWindow("hi", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         500, 500, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                         640, 360, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window)
         die("failed to create SDL window");
 
@@ -320,9 +381,6 @@ int main(int argc, char *argv[])
     const char *cmd[] = {"loadfile", argv[1], NULL};
     mpv_command_async(mpv, 0, cmd);
 
-    // toggle_pause();
-    SDL_StartTextInput();
-
     while (1)
     {
         SDL_Event event;
@@ -364,6 +422,7 @@ int main(int argc, char *argv[])
             {
                 if (insert_mode)
                 {
+                    // Backspace (pop) sub char
                 }
                 else
                 {
@@ -375,6 +434,7 @@ int main(int argc, char *argv[])
             {
                 if (insert_mode)
                 {
+                    // Sub insert newline (\n)
                 }
                 else
                 {
@@ -410,7 +470,18 @@ int main(int argc, char *argv[])
                 {
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
+                    {
+                        mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
                         sub_add(SUB_FNAME);
+                        SDL_StartTextInput();
+                    }
+                    if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
+                    {
+                        if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
+                        {
+                            mtx_reload--;
+                        }
+                    }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
@@ -422,7 +493,7 @@ int main(int argc, char *argv[])
                                 char *value = *(char **)(evp->data);
                                 if (value)
                                 {
-                                    strncpy(ts_hhmmss, value, 32);
+                                    strncpy(ts_hhmmss, value, sizeof(ts_hhmmss));
                                 }
                             }
                             else if (evp->format == MPV_FORMAT_STRING)
@@ -430,7 +501,19 @@ int main(int argc, char *argv[])
                                 char *value = *(char **)(evp->data);
                                 if (value)
                                 {
-                                    strncpy(ts_s, value, 32);
+                                    strncpy(ts_s, value, sizeof(ts_s));
+                                }
+                            }
+                        }
+                        else if (!strcmp(evp->name, "duration"))
+                        {
+                            if (evp->format == MPV_FORMAT_OSD_STRING)
+                            {
+                                char *value = *(char **)(evp->data);
+                                if (value)
+                                {
+                                    strncpy(duration, value, sizeof(duration));
+                                    printf("Video length: %s\n", value);
                                 }
                             }
                         }
@@ -445,8 +528,8 @@ int main(int argc, char *argv[])
                         // these, it works. (The log message can actually change
                         // any time, so it's possible this logging stops working
                         // in the future.)
-                        if (strstr(msg->text, "DR image"))
-                            printf("log: %s", msg->text);
+                        // if (strstr(msg->text, "DR image"))
+                        // printf("log: %s", msg->text);
                         continue;
                     }
                     // printf("event: %s\n", mpv_event_name(mp_event->event_id));
@@ -455,11 +538,8 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
-            printf("ts_s: %s\n", ts_s);
-            printf("ts_hhmmss: %s\n", ts_hhmmss);
-            char ts_full[32];
-            get_full_ts(ts_full);
-            printf("f: %s\n", ts_full);
+            // printf("ts_s: %s\n", ts_s);
+            // printf("ts_hhmmss: %s\n", ts_hhmmss);
 
             // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_STRING);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_STRING);
