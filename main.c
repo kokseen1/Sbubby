@@ -185,7 +185,7 @@ static void frame_back_step()
 static void reload_sub()
 {
     const char *cmd[] = {"sub-reload", NULL};
-    mtx_reload++;
+    // mtx_reload++;
     mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
 }
 
@@ -783,13 +783,13 @@ int main(int argc, char *argv[])
                     {
                         init();
                     }
-                    if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
-                    {
-                        if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
-                        {
-                            mtx_reload--;
-                        }
-                    }
+                    // if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
+                    // {
+                    //     if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
+                    //     {
+                    //         mtx_reload--;
+                    //     }
+                    // }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
