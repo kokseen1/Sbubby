@@ -18,6 +18,49 @@
 #define DEFAULT_SUB_FNAME "out.srt"
 #define SUB_PLACEHOLDER "1\n00:00:00.000 --> 00:00:00.000\n\n\n"
 
+
+#include <windows.h>
+#include <memory.h>
+#include <io.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+char tmp_fname[MAX_PATH];
+FILE * f_g = NULL;
+FILE *fmemopen(void *buf, size_t len, const char *type)
+{
+    int fd;
+    FILE *fp;
+    char tp[MAX_PATH - 13];
+    char fn[MAX_PATH + 1];
+
+    if (!GetTempPathA(sizeof(tp), tp))
+        return NULL;
+
+    if (!GetTempFileNameA(tp, "sbubby", 0, fn))
+        return NULL;
+
+    strcpy(tmp_fname, fn);
+
+    fd = _open(fn,
+               _O_CREAT | _O_RDWR | _O_SHORT_LIVED | _O_TEMPORARY | _O_BINARY,
+               _S_IREAD | _S_IWRITE);
+    if (fd == -1)
+        return NULL;
+
+    fp = _fdopen(fd, "w+");
+    if (!fp)
+    {
+        _close(fd);
+        return NULL;
+    }
+
+    fwrite(buf, len, 1, fp);
+    rewind(fp);
+
+    return fp;
+}
+
+
 typedef struct Sub
 {
     char start[SMALL_BUF_MAX];
@@ -44,6 +87,7 @@ static Sub *sub_focused = NULL;
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
 static mpv_handle *mpv = NULL;
+
 
 static void die(const char *msg)
 {
@@ -179,13 +223,14 @@ static void add_sub(char *fname)
 
 static void export_sub()
 {
-    if (mtx_reload)
-    {
-        // Don't touch file if reload is already in progress
-        return;
-    }
+    // if (mtx_reload)
+    // {
+    //     // Don't touch file if reload is already in progress
+    //     return;
+    // }
 
-    FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
+    // FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
+    rewind(f_g);
 
     if (sub_head)
     {
@@ -194,9 +239,9 @@ static void export_sub()
 
         while (sub_curr)
         {
-            fprintf(pFile, "%d\n", i);
-            fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
-            fprintf(pFile, "%s\n\n", sub_curr->text);
+            fprintf(f_g, "%d\n", i);
+            fprintf(f_g, "%s --> %s\n", sub_curr->start, sub_curr->end);
+            fprintf(f_g, "%s\n\n", sub_curr->text);
 
             sub_curr = sub_curr->next;
             i++;
@@ -204,10 +249,11 @@ static void export_sub()
     }
     else
     {
-        fprintf(pFile, SUB_PLACEHOLDER);
+        fprintf(f_g, SUB_PLACEHOLDER);
     }
+    fflush(f_g);
 
-    fclose(pFile);
+    // fclose(pFile);
 }
 
 static Sub *delete_sub(Sub *sub_target)
@@ -331,8 +377,10 @@ static void gen_placeholder(char *fname)
 static void init()
 {
     mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
-    gen_placeholder(DEFAULT_SUB_FNAME);
-    add_sub(DEFAULT_SUB_FNAME);
+    f_g = fmemopen(SUB_PLACEHOLDER, strlen(SUB_PLACEHOLDER), NULL);
+    printf("tmp_fname: %s\n", tmp_fname);
+    // gen_placeholder(tmp_fname);
+    add_sub(tmp_fname);
     SDL_StartTextInput();
 }
 
@@ -374,6 +422,10 @@ static void process_cmd(char *c)
 
             sub_focused = sub_new;
             insert_mode = 1;
+        }
+        else if (strstr(caps[1].ptr, "z"))
+        {
+            reload_sub();
         }
         else if (strstr(caps[1].ptr, "s"))
         {
