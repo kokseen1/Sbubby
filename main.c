@@ -13,6 +13,11 @@
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
+#define STR_IMPL_(x) #x
+#define STR(x) STR_IMPL_(x)
+
+#define STEP_SMALL 0.1
+#define STEP_DEFAULT 3
 #define REPLY_USERDATA_SUB_RELOAD 8000
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
@@ -523,21 +528,65 @@ static void process_cmd(char *c)
                 export_and_reload();
             }
         }
+        else if (strstr(caps[1].ptr, "Hj"))
+        {
+            if (sub_focused)
+            {
+                if (q)
+                    sub_focused->start_d -= q * STEP_SMALL;
+                else
+                    sub_focused->start_d -= STEP_SMALL;
+                export_and_reload();
+            }
+        }
+        else if (strstr(caps[1].ptr, "Hk"))
+        {
+            if (sub_focused)
+            {
+                if (q)
+                    sub_focused->start_d += q * STEP_SMALL;
+                else
+                    sub_focused->start_d += STEP_SMALL;
+                export_and_reload();
+            }
+        }
+        else if (strstr(caps[1].ptr, "Lj"))
+        {
+            if (sub_focused)
+            {
+                if (q)
+                    sub_focused->end_d -= q * STEP_SMALL;
+                else
+                    sub_focused->end_d -= STEP_SMALL;
+                export_and_reload();
+            }
+        }
+        else if (strstr(caps[1].ptr, "Lk"))
+        {
+            if (sub_focused)
+            {
+                if (q)
+                    sub_focused->end_d += q * STEP_SMALL;
+                else
+                    sub_focused->end_d += STEP_SMALL;
+                export_and_reload();
+            }
+        }
         else if (strstr(caps[1].ptr, "j"))
         {
-            q ? exact_seek_d(q * -1, "relative") : exact_seek("-3", "relative");
+            q ? exact_seek_d(q * -1, "relative") : exact_seek("-" STR(STEP_DEFAULT), "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
-            q ? exact_seek_d(q * 1, "relative") : exact_seek("3", "relative");
+            q ? exact_seek_d(q * 1, "relative") : exact_seek(STR(STEP_DEFAULT), "relative");
         }
         else if (strstr(caps[1].ptr, "J"))
         {
-            q ? exact_seek_d(q * -0.1, "relative") : exact_seek("-0.1", "relative");
+            q ? exact_seek_d(q * -STEP_SMALL, "relative") : exact_seek("-" STR(STEP_SMALL), "relative");
         }
         else if (strstr(caps[1].ptr, "K"))
         {
-            q ? exact_seek_d(q * 0.1, "relative") : exact_seek("0.1", "relative");
+            q ? exact_seek_d(q * STEP_SMALL, "relative") : exact_seek(STR(STEP_SMALL), "relative");
         }
         else if (strstr(caps[1].ptr, "gg"))
         {
