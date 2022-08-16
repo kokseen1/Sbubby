@@ -23,11 +23,13 @@ typedef struct Sub
     char start[SMALL_BUF_MAX];
     double start_d;
     char end[SMALL_BUF_MAX];
+    double end_d;
     char text[CMD_BUF_MAX];
     struct Sub *next;
 } Sub;
 
 static char duration[SMALL_BUF_MAX];
+static double duration_d;
 static char ts_hhmmss[SMALL_BUF_MAX];
 static char ts_s_str[SMALL_BUF_MAX];
 static double ts_s_d;
@@ -71,6 +73,11 @@ static void on_mpv_render_update(void *ctx)
 static char *ptr_max(char *ptr1, char *ptr2)
 {
     return ptr1 > ptr2 ? ptr1 : ptr2;
+}
+
+static int in_frame(Sub *sub)
+{
+    return sub->start_d <= ts_s_d && ts_s_d < sub->end_d;
 }
 
 static void show_text(char *text, char *duration)
@@ -298,7 +305,7 @@ static void insert_ordered(Sub *sub_new)
         sub_head = sub_new;
         sub_head->next = NULL;
     }
-    else if (sub_new->start_d <= sub_head->start_d)
+    else if (sub_new->start_d < sub_head->start_d)
     {
         // Insert at beginning (new head)
         sub_new->next = sub_head;
@@ -331,9 +338,31 @@ static void gen_placeholder(char *fname)
 static void init()
 {
     mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
+    mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_DOUBLE);
     gen_placeholder(DEFAULT_SUB_FNAME);
     add_sub(DEFAULT_SUB_FNAME);
     SDL_StartTextInput();
+}
+
+static void get_subs_in_frame(Sub **sub_arr, unsigned int *len)
+{
+    int i = 0;
+    if (sub_head)
+    {
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (in_frame(sub_curr))
+            {
+                sub_arr[i] = sub_curr;
+                i++;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+
+    *len = i;
+    sub_arr[i] = NULL;
 }
 
 static void process_cmd(char *c)
@@ -369,6 +398,7 @@ static void process_cmd(char *c)
             get_full_ts(sub_new->start);
             sub_new->start_d = ts_s_d;
             sprintf(sub_new->end, "%s.000", duration);
+            sub_new->end_d = duration_d;
 
             insert_ordered(sub_new);
 
@@ -385,7 +415,21 @@ static void process_cmd(char *c)
         }
         else if (strstr(caps[1].ptr, "i"))
         {
-            insert_mode = 1;
+            Sub *sub_arr[100];
+            unsigned int len;
+            get_subs_in_frame(sub_arr, &len);
+            if (len)
+            {
+                if (q < len)
+                {
+                    sub_focused = sub_arr[q];
+                    insert_mode = 1;
+                }
+                else
+                {
+                    show_text("Out of bounds!", "100");
+                }
+            }
         }
         else if (strstr(caps[1].ptr, "w"))
         {
@@ -448,11 +492,13 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
+                // TODO: Write sub clone function
                 Sub *sub_new = alloc_sub();
 
                 get_full_ts(sub_new->start);
                 sub_new->start_d = ts_s_d;
                 strncpy(sub_new->end, sub_focused->end, sizeof(sub_new->end));
+                sub_new->end_d = sub_focused->end_d;
                 strncpy(sub_new->text, sub_focused->text, sizeof(sub_new->text));
 
                 insert_ordered(sub_new);
@@ -467,6 +513,7 @@ static void process_cmd(char *c)
             if (sub_focused)
             {
                 get_full_ts(sub_focused->end);
+                sub_focused->end_d = ts_s_d;
                 export_and_reload();
             }
         }
@@ -518,8 +565,15 @@ static void insert_text(char *text)
 {
     if (sub_focused)
     {
-        strcat(sub_focused->text, text);
-        export_and_reload();
+        if (in_frame(sub_focused))
+        {
+            strcat(sub_focused->text, text);
+            export_and_reload();
+        }
+        else
+        {
+            show_text("Sub not in frame!", "100");
+        }
     }
 }
 
@@ -777,6 +831,14 @@ int main(int argc, char *argv[])
                                 if (value)
                                 {
                                     strncpy(duration, value, sizeof(duration));
+                                }
+                            }
+                            else if (evp->format == MPV_FORMAT_DOUBLE)
+                            {
+                                double value = *(double *)(evp->data);
+                                if (value)
+                                {
+                                    duration_d = value;
                                 }
                             }
                         }
