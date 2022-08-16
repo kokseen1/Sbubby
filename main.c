@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <ctype.h>
+#include <math.h>
 
 #include <slre.h>
 
@@ -16,21 +17,17 @@
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
 #define DEFAULT_SUB_FNAME "out.srt"
-#define SUB_PLACEHOLDER "1\n00:00:00.000 --> 00:00:00.000\n\n\n"
+#define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
 
 typedef struct Sub
 {
-    char start[SMALL_BUF_MAX];
     double start_d;
-    char end[SMALL_BUF_MAX];
     double end_d;
     char text[CMD_BUF_MAX];
     struct Sub *next;
 } Sub;
 
-static char duration[SMALL_BUF_MAX];
 static double duration_d;
-static char ts_hhmmss[SMALL_BUF_MAX];
 static char ts_s_str[SMALL_BUF_MAX];
 static double ts_s_d;
 
@@ -91,7 +88,9 @@ static void toggle_pause()
     const char *cmd_pause[] = {"cycle", "pause", NULL};
     mpv_command_async(mpv, 0, cmd_pause);
 }
-
+/**
+ * Warning: target cannot accept commas! e.g. 00:00:01,000
+ */
 static void exact_seek(char *target, char *flag)
 {
     const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
@@ -105,16 +104,23 @@ static void exact_seek_d(double value, char *flag)
     exact_seek(target, flag);
 }
 
-static void get_full_ts(char *ts_full)
+static void d_to_hhmmss(double ts_d, char *ts_hhmmss_out)
 {
-    // TODO (trivial): use comma as separator
-    char *pos = strchr(ts_s_str, '.');
+    int h = ts_d / 3600;
+    int m = fmod((ts_d / 60), 60);
+    double s = fmod(ts_d, 60);
+
+    sprintf(ts_hhmmss_out, "%02d:%02d:%06.3f", h, m, s);
+    char *pos = strchr(ts_hhmmss_out, '.');
     if (pos)
     {
-        strncpy(ts_full, ts_hhmmss, SMALL_BUF_MAX);
-        strncat(ts_full, pos, 4);
-        // snprintf(&ts_full[strlen(ts_full)], 5, ",%s", pos + 1);
+        *pos = ',';
     }
+}
+
+static void get_full_ts(char *ts_full)
+{
+    d_to_hhmmss(ts_s_d, ts_full);
 }
 
 static void refresh_title()
@@ -201,8 +207,14 @@ static void export_sub()
 
         while (sub_curr)
         {
+            char start_hhmmss[SMALL_BUF_MAX];
+            char end_hhmmss[SMALL_BUF_MAX];
+
+            d_to_hhmmss(sub_curr->start_d, start_hhmmss);
+            d_to_hhmmss(sub_curr->end_d, end_hhmmss);
+
             fprintf(pFile, "%d\n", i);
-            fprintf(pFile, "%s --> %s\n", sub_curr->start, sub_curr->end);
+            fprintf(pFile, "%s --> %s\n", start_hhmmss, end_hhmmss);
             fprintf(pFile, "%s\n\n", sub_curr->text);
 
             sub_curr = sub_curr->next;
@@ -337,7 +349,6 @@ static void gen_placeholder(char *fname)
 
 static void init()
 {
-    mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_OSD_STRING);
     mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_DOUBLE);
     gen_placeholder(DEFAULT_SUB_FNAME);
     add_sub(DEFAULT_SUB_FNAME);
@@ -395,9 +406,7 @@ static void process_cmd(char *c)
         else if (strstr(caps[1].ptr, "a"))
         {
             Sub *sub_new = alloc_sub();
-            get_full_ts(sub_new->start);
             sub_new->start_d = ts_s_d;
-            sprintf(sub_new->end, "%s.000", duration);
             sub_new->end_d = duration_d;
 
             insert_ordered(sub_new);
@@ -438,7 +447,7 @@ static void process_cmd(char *c)
                 if (sub_focused->next)
                 {
                     sub_focused = sub_focused->next;
-                    exact_seek(sub_focused->start, "absolute");
+                    exact_seek_d(sub_focused->start_d, "absolute");
                 }
                 else
                 {
@@ -462,7 +471,7 @@ static void process_cmd(char *c)
                         if (sub_curr->next == sub_focused)
                         {
                             sub_focused = sub_curr;
-                            exact_seek(sub_focused->start, "absolute");
+                            exact_seek_d(sub_focused->start_d, "absolute");
                             break;
                         }
                         sub_curr = sub_curr->next;
@@ -474,7 +483,7 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                exact_seek(sub_focused->start, "absolute");
+                exact_seek_d(sub_focused->start_d, "absolute");
                 if (q)
                     exact_seek_d(q * -1, "relative");
             }
@@ -483,7 +492,7 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                exact_seek(sub_focused->end, "absolute");
+                exact_seek_d(sub_focused->end_d, "absolute");
                 if (q)
                     exact_seek_d(q * -1, "relative");
             }
@@ -495,9 +504,7 @@ static void process_cmd(char *c)
                 // TODO: Write sub clone function
                 Sub *sub_new = alloc_sub();
 
-                get_full_ts(sub_new->start);
                 sub_new->start_d = ts_s_d;
-                strncpy(sub_new->end, sub_focused->end, sizeof(sub_new->end));
                 sub_new->end_d = sub_focused->end_d;
                 strncpy(sub_new->text, sub_focused->text, sizeof(sub_new->text));
 
@@ -512,7 +519,6 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                get_full_ts(sub_focused->end);
                 sub_focused->end_d = ts_s_d;
                 export_and_reload();
             }
@@ -798,23 +804,7 @@ int main(int argc, char *argv[])
 
                         if (!strcmp(evp->name, "time-pos"))
                         {
-                            if (evp->format == MPV_FORMAT_OSD_STRING)
-                            {
-                                char *value = *(char **)(evp->data);
-                                if (value)
-                                {
-                                    strncpy(ts_hhmmss, value, sizeof(ts_hhmmss));
-                                }
-                            }
-                            else if (evp->format == MPV_FORMAT_STRING)
-                            {
-                                char *value = *(char **)(evp->data);
-                                if (value)
-                                {
-                                    strncpy(ts_s_str, value, sizeof(ts_s_str));
-                                }
-                            }
-                            else if (evp->format == MPV_FORMAT_DOUBLE)
+                            if (evp->format == MPV_FORMAT_DOUBLE)
                             {
                                 double value = *(double *)(evp->data);
                                 if (value)
@@ -825,15 +815,7 @@ int main(int argc, char *argv[])
                         }
                         else if (!strcmp(evp->name, "duration"))
                         {
-                            if (evp->format == MPV_FORMAT_OSD_STRING)
-                            {
-                                char *value = *(char **)(evp->data);
-                                if (value)
-                                {
-                                    strncpy(duration, value, sizeof(duration));
-                                }
-                            }
-                            else if (evp->format == MPV_FORMAT_DOUBLE)
+                            if (evp->format == MPV_FORMAT_DOUBLE)
                             {
                                 double value = *(double *)(evp->data);
                                 if (value)
@@ -863,13 +845,8 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
-            // printf("ts_s_str: %s\n", ts_s_str);
-            // printf("ts_hhmmss: %s\n", ts_hhmmss);
-
-            // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_STRING);
-            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_STRING);
+            // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_DOUBLE);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
-            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_OSD_STRING);
 
             int w, h;
             SDL_GetWindowSize(window, &w, &h);
