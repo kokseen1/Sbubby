@@ -276,6 +276,12 @@ static void export_and_reload()
     reload_sub();
 }
 
+static void set_sub_focus(Sub *sub)
+{
+    sub_focused = sub;
+    export_and_reload();
+}
+
 static int process_ex()
 {
     if (cmd_buf[0] == ':')
@@ -420,7 +426,7 @@ static void process_cmd(char *c)
 
             insert_ordered(sub_new);
 
-            sub_focused = sub_new;
+            set_sub_focus(sub_new);
             insert_mode = 1;
         }
         else if (strstr(caps[1].ptr, "s"))
@@ -435,12 +441,13 @@ static void process_cmd(char *c)
         {
             Sub *sub_arr[100];
             unsigned int len;
+            // TODO: don't switch focus if sub_focused is already in frame
             get_subs_in_frame(sub_arr, &len);
             if (len)
             {
                 if (q < len)
                 {
-                    sub_focused = sub_arr[q];
+                    set_sub_focus(sub_arr[q]);
                     insert_mode = 1;
                 }
                 else
@@ -455,7 +462,8 @@ static void process_cmd(char *c)
             {
                 if (sub_focused->next)
                 {
-                    sub_focused = sub_focused->next;
+                    set_sub_focus(sub_focused->next);
+                    // TODO: Don't seek if already in frame
                     exact_seek_d(sub_focused->start_d, "absolute");
                 }
                 else
@@ -479,7 +487,8 @@ static void process_cmd(char *c)
                     {
                         if (sub_curr->next == sub_focused)
                         {
-                            sub_focused = sub_curr;
+                            set_sub_focus(sub_curr);
+                            // TODO: Don't seek if already in frame
                             exact_seek_d(sub_focused->start_d, "absolute");
                             break;
                         }
@@ -520,8 +529,7 @@ static void process_cmd(char *c)
                 insert_ordered(sub_new);
 
                 delete_sub(sub_focused);
-                sub_focused = sub_new;
-                export_and_reload();
+                set_sub_focus(sub_new);
             }
         }
         else if (strstr(caps[1].ptr, "l"))
@@ -600,8 +608,7 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                sub_focused = delete_sub(sub_focused);
-                export_and_reload();
+                set_sub_focus(delete_sub(sub_focused));
             }
         }
         else
