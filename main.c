@@ -17,6 +17,7 @@
 #define STR(x) STR_IMPL_(x)
 
 #define STEP_SMALL 0.1
+#define STEP_MEDIUM 1
 #define STEP_DEFAULT 3
 #define REPLY_USERDATA_SUB_RELOAD 8000
 
@@ -407,7 +408,7 @@ static void process_cmd(char *c)
         {
             q = strtol(caps[0].ptr, NULL, 10);
         }
-        // printf("%ld\n", q);
+        // printf("q = %ld\n", q);
         // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
@@ -518,9 +519,8 @@ static void process_cmd(char *c)
             if (sub_focused)
             {
                 if (q == -1)
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                else
-                    exact_seek_d(q * -1, "relative");
+                    q = 0;
+                exact_seek_d(sub_focused->start_d - (q * STEP_MEDIUM), "absolute");
             }
         }
         else if (strstr(caps[1].ptr, "O"))
@@ -528,9 +528,8 @@ static void process_cmd(char *c)
             if (sub_focused)
             {
                 if (q == -1)
-                    exact_seek_d(sub_focused->end_d, "absolute");
-                else
-                    exact_seek_d(q * -1, "relative");
+                    q = 0;
+                exact_seek_d(sub_focused->end_d - (q * STEP_MEDIUM), "absolute");
             }
         }
         else if (strstr(caps[1].ptr, "h"))
