@@ -456,6 +456,8 @@ static void process_cmd(char *c)
                             break;
                         }
                     }
+                    if (q == -1)
+                        q = 0;
                 }
 
                 if (q < len)
