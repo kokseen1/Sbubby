@@ -392,6 +392,43 @@ static void get_subs_in_frame(Sub **sub_arr, unsigned int *len)
     sub_arr[i] = NULL;
 }
 
+static void focus_next(int seek)
+{
+    if (sub_focused->next)
+    {
+        set_sub_focus(sub_focused->next);
+        if (seek)
+            exact_seek_d(sub_focused->start_d, "absolute");
+    }
+    else
+    {
+        show_text("At last sub!\n", "100");
+    }
+}
+
+static void focus_back(int seek)
+{
+    if (sub_focused == sub_head)
+    {
+        show_text("At first sub!\n", "100");
+    }
+    else
+    {
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (sub_curr->next == sub_focused)
+            {
+                set_sub_focus(sub_curr);
+                if (seek)
+                    exact_seek_d(sub_focused->start_d, "absolute");
+                break;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+}
+
 static void process_cmd(char *c)
 {
     strcat(cmd_buf, c);
@@ -442,7 +479,6 @@ static void process_cmd(char *c)
         {
             Sub *sub_arr[100];
             unsigned int len;
-            // TODO: don't switch focus if sub_focused is already in frame
             get_subs_in_frame(sub_arr, &len);
             if (len)
             {
@@ -479,41 +515,28 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                if (sub_focused->next)
-                {
-                    set_sub_focus(sub_focused->next);
-                    // TODO: Don't seek if already in frame
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                }
-                else
-                {
-                    show_text("At last sub!\n", "100");
-                }
+                focus_next(1);
+            }
+        }
+        else if (strstr(caps[1].ptr, "W"))
+        {
+            if (sub_focused)
+            {
+                focus_next(0);
             }
         }
         else if (strstr(caps[1].ptr, "b"))
         {
             if (sub_focused)
             {
-                if (sub_focused == sub_head)
-                {
-                    show_text("At first sub!\n", "100");
-                }
-                else
-                {
-                    Sub *sub_curr = sub_head;
-                    while (sub_curr)
-                    {
-                        if (sub_curr->next == sub_focused)
-                        {
-                            set_sub_focus(sub_curr);
-                            // TODO: Don't seek if already in frame
-                            exact_seek_d(sub_focused->start_d, "absolute");
-                            break;
-                        }
-                        sub_curr = sub_curr->next;
-                    }
-                }
+                focus_back(1);
+            }
+        }
+        else if (strstr(caps[1].ptr, "B"))
+        {
+            if (sub_focused)
+            {
+                focus_back(0);
             }
         }
         else if (strstr(caps[1].ptr, "o"))
