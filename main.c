@@ -401,7 +401,7 @@ static void process_cmd(char *c)
     struct slre_cap caps[2];
     if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
-        long q = 0;
+        long q = -1;
         // printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
@@ -445,6 +445,18 @@ static void process_cmd(char *c)
             get_subs_in_frame(sub_arr, &len);
             if (len)
             {
+                if (q == -1)
+                {
+                    for (int i = 0; i < len; i++)
+                    {
+                        if (sub_focused == sub_arr[i])
+                        {
+                            q = i;
+                            break;
+                        }
+                    }
+                }
+
                 if (q < len)
                 {
                     set_sub_focus(sub_arr[q]);
@@ -454,6 +466,10 @@ static void process_cmd(char *c)
                 {
                     show_text("Out of bounds!", "100");
                 }
+            }
+            else
+            {
+                show_text("No sub in frame!", "100");
             }
         }
         else if (strstr(caps[1].ptr, "w"))
@@ -501,8 +517,9 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                exact_seek_d(sub_focused->start_d, "absolute");
-                if (q)
+                if (q == -1)
+                    exact_seek_d(sub_focused->start_d, "absolute");
+                else
                     exact_seek_d(q * -1, "relative");
             }
         }
@@ -510,8 +527,9 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                exact_seek_d(sub_focused->end_d, "absolute");
-                if (q)
+                if (q == -1)
+                    exact_seek_d(sub_focused->end_d, "absolute");
+                else
                     exact_seek_d(q * -1, "relative");
             }
         }
@@ -544,10 +562,11 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                if (q)
-                    sub_focused->start_d -= q * STEP_SMALL;
-                else
+                if (q == -1)
                     sub_focused->start_d -= STEP_SMALL;
+                else
+                    sub_focused->start_d -= q * STEP_SMALL;
+
                 export_and_reload();
             }
         }
@@ -555,10 +574,11 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                if (q)
-                    sub_focused->start_d += q * STEP_SMALL;
-                else
+                if (q == -1)
                     sub_focused->start_d += STEP_SMALL;
+                else
+                    sub_focused->start_d += q * STEP_SMALL;
+
                 export_and_reload();
             }
         }
@@ -566,10 +586,11 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                if (q)
-                    sub_focused->end_d -= q * STEP_SMALL;
-                else
+                if (q == -1)
                     sub_focused->end_d -= STEP_SMALL;
+                else
+                    sub_focused->end_d -= q * STEP_SMALL;
+
                 export_and_reload();
             }
         }
@@ -577,28 +598,29 @@ static void process_cmd(char *c)
         {
             if (sub_focused)
             {
-                if (q)
-                    sub_focused->end_d += q * STEP_SMALL;
-                else
+                if (q == -1)
                     sub_focused->end_d += STEP_SMALL;
+                else
+                    sub_focused->end_d += q * STEP_SMALL;
+
                 export_and_reload();
             }
         }
         else if (strstr(caps[1].ptr, "j"))
         {
-            q ? exact_seek_d(q * -1, "relative") : exact_seek("-" STR(STEP_DEFAULT), "relative");
+            q == -1 ? exact_seek("-" STR(STEP_DEFAULT), "relative") : exact_seek_d(q * -1, "relative");
         }
         else if (strstr(caps[1].ptr, "k"))
         {
-            q ? exact_seek_d(q * 1, "relative") : exact_seek(STR(STEP_DEFAULT), "relative");
+            q == -1 ? exact_seek(STR(STEP_DEFAULT), "relative") : exact_seek_d(q * 1, "relative");
         }
         else if (strstr(caps[1].ptr, "J"))
         {
-            q ? exact_seek_d(q * -STEP_SMALL, "relative") : exact_seek("-" STR(STEP_SMALL), "relative");
+            q == -1 ? exact_seek("-" STR(STEP_SMALL), "relative") : exact_seek_d(q * -STEP_SMALL, "relative");
         }
         else if (strstr(caps[1].ptr, "K"))
         {
-            q ? exact_seek_d(q * STEP_SMALL, "relative") : exact_seek(STR(STEP_SMALL), "relative");
+            q == -1 ? exact_seek(STR(STEP_SMALL), "relative") : exact_seek_d(q * STEP_SMALL, "relative");
         }
         else if (strstr(caps[1].ptr, "gg"))
         {
