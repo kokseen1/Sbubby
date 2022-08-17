@@ -18,6 +18,7 @@
 
 #define STEP_SMALL 0.1
 #define STEP_DEFAULT 3
+#define REPLY_USERDATA_SUB_RELOAD 8000
 
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
@@ -39,6 +40,7 @@ static double ts_s_d;
 
 static char cmd_buf[CMD_BUF_MAX];
 
+static int mtx_reload = 0;
 static int insert_mode = 0;
 
 static char *sub_fname = NULL;
@@ -159,7 +161,8 @@ static void frame_back_step()
 static void reload_sub()
 {
     const char *cmd[] = {"sub-reload", NULL};
-    mpv_command_async(mpv, 0, cmd);
+    mtx_reload++;
+    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
 }
 
 static void clear_cmd_buf()
@@ -196,6 +199,11 @@ static void add_sub(char *fname)
 
 static void export_sub()
 {
+    if (mtx_reload)
+    {
+        return;
+    }
+
     FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
 
     if (sub_head)
@@ -835,6 +843,13 @@ int main(int argc, char *argv[])
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
                         init();
+                    }
+                    if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
+                    {
+                        if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
+                        {
+                            mtx_reload--;
+                        }
                     }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
