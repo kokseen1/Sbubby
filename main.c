@@ -23,6 +23,7 @@
 #define SMALL_BUF_MAX 32
 #define DEFAULT_SUB_FNAME "out.srt"
 #define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
+#define COLOR_SUB_FOCUSED "lightgreen"
 
 typedef struct Sub
 {
@@ -212,7 +213,10 @@ static void export_sub()
 
             fprintf(pFile, "%d\n", i);
             fprintf(pFile, "%s --> %s\n", start_hhmmss, end_hhmmss);
-            fprintf(pFile, "%s\n\n", sub_curr->text);
+            if (sub_curr == sub_focused)
+                fprintf(pFile, "<font color=" COLOR_SUB_FOCUSED ">%s</font>\n\n", sub_curr->text);
+            else
+                fprintf(pFile, "%s\n\n", sub_curr->text);
 
             sub_curr = sub_curr->next;
             i++;
