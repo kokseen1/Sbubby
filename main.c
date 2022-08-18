@@ -1076,6 +1076,8 @@ int main(int argc, char *argv[])
                         if (argc >= 3)
                         {
                             import_sub(argv[2]);
+                            if (!sub_focused && sub_head)
+                                sub_focused = sub_head;
                             export_and_reload();
                         }
                     }
