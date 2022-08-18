@@ -313,7 +313,7 @@ static void import_sub(char *fname)
                 }
             }
         }
-        else if (slre_match("^([^\n]*)", buf, strlen(buf), caps, 1) > 0)
+        else if (slre_match("^([^\n].+)", buf, strlen(buf), caps, 1) > 0)
         {
             if (pend_buf[0])
             {
