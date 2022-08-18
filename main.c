@@ -85,6 +85,37 @@ static int in_frame(Sub *sub)
     return sub->start_d <= ts_s_d && ts_s_d < sub->end_d;
 }
 
+static void insert_ordered(Sub *sub_new)
+{
+    if (!sub_head)
+    {
+        // First item
+        sub_head = sub_new;
+        sub_head->next = NULL;
+    }
+    else if (sub_new->start_d < sub_head->start_d)
+    {
+        // Insert at beginning (new head)
+        sub_new->next = sub_head;
+        sub_head = sub_new;
+    }
+    else
+    {
+        // Ordered insert
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (!sub_curr->next || sub_curr->next->start_d > sub_new->start_d)
+            {
+                sub_new->next = sub_curr->next;
+                sub_curr->next = sub_new;
+                break;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+}
+
 static void show_text(char *text, char *duration)
 {
     const char *cmd[] = {"show-text", text, duration, NULL};
@@ -198,6 +229,11 @@ static void reload_sub()
     mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
 }
 
+static Sub *alloc_sub()
+{
+    return (Sub *)calloc(1, sizeof(Sub));
+}
+
 static void clear_cmd_buf()
 {
     cmd_buf[0] = 0;
@@ -228,6 +264,77 @@ static void add_sub(char *fname)
         mpv_command_async(mpv, 0, cmd);
         sub_fname = fname;
     }
+}
+
+static void import_sub(char *fname)
+{
+    char buf[CMD_BUF_MAX] = {0};
+    char pend_buf[CMD_BUF_MAX] = {0};
+
+    FILE *fp = fopen(fname, "r");
+    Sub *curr_sub = NULL;
+
+    while (fgets(buf, CMD_BUF_MAX, fp))
+    {
+        struct slre_cap caps[2];
+
+        if (slre_match("^([0-9]+)\n$", buf, strlen(buf), caps, 1) > 0)
+        {
+            if (caps[0].len)
+            {
+                if (pend_buf[0] && curr_sub)
+                {
+                    strcat(curr_sub->text, pend_buf);
+                }
+                strncpy(pend_buf, caps[0].ptr, caps[0].len);
+            }
+        }
+        else if (slre_match("^([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+) --> ([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+)\n$", buf, strlen(buf), caps, 2) > 0)
+        {
+            if (caps[0].len && caps[1].len)
+            {
+                if (curr_sub)
+                    insert_ordered(curr_sub);
+
+                curr_sub = alloc_sub();
+
+                char start[SMALL_BUF_MAX] = {0};
+                char end[SMALL_BUF_MAX] = {0};
+
+                strncpy(start, caps[0].ptr, caps[0].len);
+                strncpy(end, caps[1].ptr, caps[1].len);
+
+                curr_sub->start_d = hhmmss_to_d(start);
+                curr_sub->end_d = hhmmss_to_d(end);
+
+                if (pend_buf[0])
+                {
+                    pend_buf[0] = 0;
+                }
+            }
+        }
+        else if (slre_match("^([^\n]*)", buf, strlen(buf), caps, 1) > 0)
+        {
+            if (pend_buf[0])
+            {
+                if (curr_sub)
+                    strcat(curr_sub->text, pend_buf);
+                pend_buf[0] = 0;
+            }
+
+            if (curr_sub && caps[0].len)
+            {
+                strncat(curr_sub->text, caps[0].ptr, caps[0].len);
+            }
+        }
+    }
+
+    if (curr_sub)
+    {
+        insert_ordered(curr_sub);
+    }
+
+    fclose(fp);
 }
 
 static void export_sub()
@@ -350,42 +457,6 @@ static int process_ex()
     refresh_title();
 
     return 0;
-}
-
-static Sub *alloc_sub()
-{
-    return (Sub *)calloc(1, sizeof(Sub));
-}
-
-static void insert_ordered(Sub *sub_new)
-{
-    if (!sub_head)
-    {
-        // First item
-        sub_head = sub_new;
-        sub_head->next = NULL;
-    }
-    else if (sub_new->start_d < sub_head->start_d)
-    {
-        // Insert at beginning (new head)
-        sub_new->next = sub_head;
-        sub_head = sub_new;
-    }
-    else
-    {
-        // Ordered insert
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (!sub_curr->next || sub_curr->next->start_d > sub_new->start_d)
-            {
-                sub_new->next = sub_curr->next;
-                sub_curr->next = sub_new;
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
 }
 
 static void gen_placeholder(char *fname)
@@ -816,7 +887,7 @@ static void pop_word(char *text)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2)
+    if (argc < 2)
         die("pass a single media file as argument");
 
     mpv = mpv_create();
@@ -1002,6 +1073,11 @@ int main(int argc, char *argv[])
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
                         init();
+                        if (argc >= 3)
+                        {
+                            import_sub(argv[2]);
+                            export_and_reload();
+                        }
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
