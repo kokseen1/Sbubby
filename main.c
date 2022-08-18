@@ -112,6 +112,38 @@ static void exact_seek_d(double value, char *flag)
     exact_seek(target, flag);
 }
 
+static double hhmmss_to_d(char *buf)
+{
+    double d = 0.0;
+    struct slre_cap caps[3];
+
+    if (slre_match("^([0-9]+):([0-9]+):([0-9]+[,|\\.][0-9]+)$", buf, strlen(buf), caps, 3) > 0)
+    {
+        if (caps[0].len && caps[1].len && caps[2].len)
+        {
+            char hh[SMALL_BUF_MAX] = {0};
+            char mm[SMALL_BUF_MAX] = {0};
+            char ss_ms[SMALL_BUF_MAX] = {0};
+
+            strncpy(hh, caps[0].ptr, caps[0].len);
+            strncpy(mm, caps[1].ptr, caps[1].len);
+            strncpy(ss_ms, caps[2].ptr, caps[2].len);
+
+            char *pos = strchr(ss_ms, ',');
+            if (pos)
+                *pos = '.';
+
+            d = strtol(hh, NULL, 10) * 3600 + strtol(mm, NULL, 10) * 60 + strtod(ss_ms, NULL);
+        }
+    }
+    else
+    {
+        printf("Invalid hhmmss format!\n");
+    }
+
+    return d;
+}
+
 static void d_to_hhmmss(double ts_d, char *ts_hhmmss_out)
 {
     int h = ts_d / 3600;
