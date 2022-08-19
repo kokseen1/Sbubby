@@ -23,7 +23,7 @@
 
 #define CMD_BUF_MAX 1024
 #define SMALL_BUF_MAX 32
-#define DEFAULT_SUB_FNAME "out.srt"
+#define DEFAULT_SUB_FNAME "tmp.srt"
 #define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
 #define COLOR_SUB_FOCUSED "lightgreen"
 
@@ -888,7 +888,7 @@ static void pop_word(char *text)
 int main(int argc, char *argv[])
 {
     if (argc < 2)
-        die("pass a single media file as argument");
+        die("Usage: sbubby video.mp4 [sub.srt]");
 
     mpv = mpv_create();
     if (!mpv)
