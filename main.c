@@ -44,6 +44,7 @@ static char cmd_buf[CMD_BUF_MAX];
 static int mtx_reload = 0;
 static int insert_mode = 0;
 
+static char *video_fname = NULL;
 static char *sub_fname = NULL;
 static Sub *sub_head = NULL;
 static Sub *sub_focused = NULL;
@@ -337,14 +338,14 @@ static void import_sub(char *fname)
     fclose(fp);
 }
 
-static void export_sub()
+static void export_sub(char *fname, int highlight)
 {
     if (mtx_reload)
     {
         return;
     }
 
-    FILE *pFile = fopen(DEFAULT_SUB_FNAME, "w");
+    FILE *pFile = fopen(fname, "w");
 
     if (sub_head)
     {
@@ -361,7 +362,7 @@ static void export_sub()
 
             fprintf(pFile, "%d\n", i);
             fprintf(pFile, "%s --> %s\n", start_hhmmss, end_hhmmss);
-            if (sub_curr == sub_focused)
+            if (highlight && sub_curr == sub_focused)
                 fprintf(pFile, "<font color=" COLOR_SUB_FOCUSED ">%s</font>\n\n", sub_curr->text);
             else
                 fprintf(pFile, "%s\n\n", sub_curr->text);
@@ -412,7 +413,7 @@ static Sub *delete_sub(Sub *sub_target)
 
 static void export_and_reload()
 {
-    export_sub();
+    export_sub(DEFAULT_SUB_FNAME, 1);
     reload_sub();
 }
 
@@ -422,20 +423,36 @@ static void set_sub_focus(Sub *sub)
     export_and_reload();
 }
 
+static void save_sub()
+{
+    char sub_out_fname[PATH_MAX];
+    char msg[CMD_BUF_MAX];
+
+    strcpy(sub_out_fname, video_fname);
+    strcat(sub_out_fname, ".srt");
+    export_sub(sub_out_fname, 0);
+    sprintf(msg, "Saved: %s", sub_out_fname);
+    show_text(msg, "2000");
+}
+
 static int process_ex()
 {
     if (cmd_buf[0] == ':')
     {
         char *ex_buf = cmd_buf + 1;
         struct slre_cap caps[1];
-        // printf("ex_buf: %s;\n", ex_buf);
         if (slre_match("^([a-zA-Z]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
         {
             if (caps[0].len)
             {
                 if (!strcmp(caps[0].ptr, "w"))
                 {
-                    printf("save\n");
+                    save_sub();
+                }
+                else if (!strcmp(caps[0].ptr, "wq"))
+                {
+                    save_sub();
+                    return -1;
                 }
                 else if (!strcmp(caps[0].ptr, "q"))
                 {
@@ -615,13 +632,10 @@ static void process_cmd(char *c)
     if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
     {
         long q = -1;
-        // printf("q1: %.*s\n", caps[0].len, caps[0].ptr);
         if (caps[0].len)
         {
             q = strtol(caps[0].ptr, NULL, 10);
         }
-        // printf("q = %ld\n", q);
-        // printf("q2: %.*s\n", caps[1].len, caps[1].ptr);
 
         if (strstr(caps[1].ptr, " "))
         {
@@ -889,6 +903,7 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
         die("Usage: sbubby video.mp4 [sub.srt]");
+    video_fname = argv[1];
 
     mpv = mpv_create();
     if (!mpv)
@@ -962,7 +977,7 @@ int main(int argc, char *argv[])
     mpv_render_context_set_update_callback(mpv_gl, on_mpv_render_update, NULL);
 
     // Play this file.
-    const char *cmd[] = {"loadfile", argv[1], NULL};
+    const char *cmd[] = {"loadfile", video_fname, NULL};
     mpv_command_async(mpv, 0, cmd);
 
     while (1)
