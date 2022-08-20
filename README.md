@@ -90,9 +90,11 @@ Enter Ex mode by entering `:` in NORMAL mode. Press the enter key to execute com
 
 `:w` - Save the current subtitle as `<video.mp4>.srt`
 
+`:q` - Quit without saving
+
 `:wq` - Save the current subtitle and quit
 
-### Additional commands
+### Additional controls
 
 #### Movement
 
