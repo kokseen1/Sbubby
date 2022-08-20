@@ -1,4 +1,4 @@
-# ![logo](https://github.com/kokseen1/Sbubby/master/img/logo.png?raw=true) Sbubby
+# ![logo](https://github.com/kokseen1/Sbubby/blob/master/img/logo.png?raw=true) Sbubby
 
 A minimal yet ambitious subtitle editor.
 
