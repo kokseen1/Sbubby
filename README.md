@@ -4,6 +4,8 @@ A minimal yet ambitious subtitle editor.
 
 Sbubby is a keyboard-only subtitle editor written in C that aims to be efficient yet precise. Interaction with Sbubby is done via Vim-like keybindings which provide an efficient way of navigating and editing, through the use of operators and motions.
 
+![demo](https://raw.githubusercontent.com/kokseen1/Sbubby/master/img/demo.gif?raw=True)
+
 ## Installation
 
 Pre-built binaries can be found [here](https://github.com/kokseen1/Sbubby/releases), along with installation instructions.
