@@ -1,36 +1,35 @@
 CC = gcc
-TARGET_EXEC = sbubby.exe
-SOURCES = main.c slre.c
 
+SRC_DIR = src
 OBJ_DIR = obj
-OBJS = $(SOURCES:%.c=$(OBJ_DIR)/%.o)
+BIN_DIR = .
 
-DEPS := $(OBJS:.o=.d)
+EXE = $(BIN_DIR)/sbubby.exe
+SRC = $(wildcard $(SRC_DIR)/*.c)
+OBJ = $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 LIB_DIR = external/lib
-LIB_DIRS = $(wildcard $(LIB_DIR)/*)
+LDLIBS = -lmingw32 -lSDL2main -lSDL2 -lmpv
+INCLUDES = -Iexternal/include
 
-_LIBS = mingw32 SDL2main SDL2 mpv
-LIBS = $(addprefix -l, $(_LIBS))
+CPPFLAGS = $(INCLUDES) -MMD -MP
+CFLAGS = -Wall
+LDFLAGS = $(addprefix -L, $(wildcard $(LIB_DIR)/*))
 
-INC_DIRS = external/include
-INCLUDES = $(addprefix -I, $(INC_DIRS))
+.PHONY: all clean
 
-CFLAGS = -Wall -g -MMD -MP $(INCLUDES)
-LFLAGS = $(addprefix -L, $(LIB_DIRS))
+all: $(EXE)
 
-all: $(TARGET_EXEC)
+$(EXE): $(OBJ) | $(BIN_DIR)
+	$(CC) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
-$(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)
-	$(CC) -c -o $@ $< $(CFLAGS)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
+	$(CC) -c -o $@ $< $(CPPFLAGS) $(CFLAGS)
 
-$(OBJ_DIR):
-	@mkdir obj
-
-$(TARGET_EXEC): $(OBJS)
-	$(CC) -o $@ $^ $(CFLAGS) $(LFLAGS) $(LIBS)
+$(BIN_DIR) $(OBJ_DIR):
+	@mkdir $@
 
 clean: | $(OBJ_DIR)
 	@rmdir $(OBJ_DIR) /s /q
 
--include $(DEPS)
+-include $(OBJ:.o=.d)
