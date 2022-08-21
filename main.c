@@ -36,7 +36,6 @@ typedef struct Sub
 } Sub;
 
 static double duration_d;
-static char ts_s_str[SMALL_BUF_MAX];
 static double ts_s_d;
 
 static char cmd_buf[CMD_BUF_MAX];
@@ -188,11 +187,6 @@ static void d_to_hhmmss(double ts_d, char *ts_hhmmss_out)
     {
         *pos = ',';
     }
-}
-
-static void get_full_ts(char *ts_full)
-{
-    d_to_hhmmss(ts_s_d, ts_full);
 }
 
 static void refresh_title()
@@ -1134,7 +1128,7 @@ int main(int argc, char *argv[])
                         break;
                     if (mp_event->event_id == MPV_EVENT_LOG_MESSAGE)
                     {
-                        mpv_event_log_message *msg = mp_event->data;
+                        // mpv_event_log_message *msg = mp_event->data;
                         // Print log messages about DR allocations, just to
                         // test whether it works. If there is more than 1 of
                         // these, it works. (The log message can actually change
