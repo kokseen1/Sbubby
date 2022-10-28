@@ -708,13 +708,13 @@ static void process_cmd(char *c)
                 focus_next(0);
             }
         }
-        else if (strstr(caps[1].ptr, "b"))
-        {
-            if (sub_focused)
-            {
-                focus_back(1);
-            }
-        }
+        // else if (strstr(caps[1].ptr, "b"))
+        // {
+        //     if (sub_focused)
+        //     {
+        //         focus_back(1);
+        //     }
+        // }
         else if (strstr(caps[1].ptr, "B"))
         {
             if (sub_focused)
@@ -722,24 +722,57 @@ static void process_cmd(char *c)
                 focus_back(0);
             }
         }
-        else if (strstr(caps[1].ptr, "o"))
+        // else if (strstr(caps[1].ptr, "o"))
+        // {
+        //     if (sub_focused)
+        //     {
+        //         if (q == -1)
+        //             q = 0;
+        //         exact_seek_d(sub_focused->start_d - (q * STEP_MEDIUM), "absolute");
+        //     }
+        // }
+        else if (strstr(caps[1].ptr, "b"))
         {
             if (sub_focused)
             {
-                if (q == -1)
-                    q = 0;
-                exact_seek_d(sub_focused->start_d - (q * STEP_MEDIUM), "absolute");
+                if (ts_s_d == sub_focused->start_d)
+                {
+                    focus_back(1);
+                }
+                else
+                {
+                    exact_seek_d(sub_focused->start_d, "absolute");
+                }
             }
         }
-        else if (strstr(caps[1].ptr, "O"))
+        else if (strstr(caps[1].ptr, "e"))
         {
             if (sub_focused)
             {
-                if (q == -1)
-                    q = 0;
-                exact_seek_d(sub_focused->end_d - (q * STEP_MEDIUM), "absolute");
+                exact_seek_d(sub_focused->end_d, "absolute");
             }
         }
+        else if (strstr(caps[1].ptr, "G"))
+        {
+            if (q == -1)
+            {
+                const char *cmd_seek[] = {"seek", "100", "absolute-percent", "exact", NULL};
+                mpv_command_async(mpv, 0, cmd_seek);
+            }
+            else
+            {
+                exact_seek_d(q, "absolute");
+            }
+        }
+        // else if (strstr(caps[1].ptr, "O"))
+        // {
+        //     if (sub_focused)
+        //     {
+        //         if (q == -1)
+        //             q = 0;
+        //         exact_seek_d(sub_focused->end_d - (q * STEP_MEDIUM), "absolute");
+        //     }
+        // }
         else if (strstr(caps[1].ptr, "h"))
         {
             if (sub_focused)
