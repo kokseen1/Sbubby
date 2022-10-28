@@ -973,6 +973,8 @@ int main(int argc, char *argv[])
     // Play this file.
     const char *cmd[] = {"loadfile", video_fname, NULL};
     mpv_command_async(mpv, 0, cmd);
+    const char *cmd_loop[] = {"set", "loop", "inf", NULL};
+    mpv_command_async(mpv, 0, cmd_loop);
 
     while (1)
     {
