@@ -1004,10 +1004,10 @@ int main(int argc, char *argv[])
     mpv_render_context_set_update_callback(mpv_gl, on_mpv_render_update, NULL);
 
     // Play this file.
-    const char *cmd[] = {"loadfile", video_fname, NULL};
-    mpv_command_async(mpv, 0, cmd);
     const char *cmd_loop[] = {"set", "loop", "inf", NULL};
     mpv_command_async(mpv, 0, cmd_loop);
+    const char *cmd[] = {"loadfile", video_fname, NULL};
+    mpv_command_async(mpv, 0, cmd);
 
     while (1)
     {
