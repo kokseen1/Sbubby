@@ -2,7 +2,7 @@ CC = gcc
 
 SRC_DIR = src
 OBJ_DIR = obj
-BIN_DIR = .
+BIN_DIR = build
 
 EXE = $(BIN_DIR)/sbubby.exe
 SRC = $(wildcard $(SRC_DIR)/*.c)
@@ -10,7 +10,7 @@ OBJ = $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
 LIB_DIR = external/lib
 LDLIBS = -lmingw32 -lSDL2main -lSDL2 -lmpv
-INCLUDES = -Iexternal/include
+INCLUDES = -Iexternal/include -Iinclude
 
 CPPFLAGS = $(INCLUDES) -MMD -MP
 CFLAGS = -Wall

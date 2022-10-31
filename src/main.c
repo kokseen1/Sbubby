@@ -1,56 +1,21 @@
-#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <ctype.h>
-#include <math.h>
-
-#include <slre.h>
-
 #include <SDL2/SDL.h>
-
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
-#define STR_IMPL_(x) #x
-#define STR(x) STR_IMPL_(x)
+#include <slre.h>
 
-#define STEP_SMALL 0.1
-#define STEP_MEDIUM 1
-#define STEP_DEFAULT 3
-#define REPLY_USERDATA_SUB_RELOAD 8000
-
-#define CMD_BUF_MAX 1024
-#define SMALL_BUF_MAX 32
-#define DEFAULT_SUB_FNAME "tmp.srt"
-#define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
-#define COLOR_SUB_FOCUSED "lightgreen"
-
-typedef struct Sub
-{
-    double start_d;
-    double end_d;
-    char text[CMD_BUF_MAX];
-    struct Sub *next;
-} Sub;
-
-static double duration_d;
-static double ts_s_d;
-
-static char cmd_buf[CMD_BUF_MAX];
-
-static int mtx_reload = 0;
-static int insert_mode = 0;
-
-static char *video_fname = NULL;
-static char *sub_fname = NULL;
-static Sub *sub_head = NULL;
-static Sub *sub_focused = NULL;
+#define WINDOW_WIDTH 640
+#define WINDOW_HEIGHT 360
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
 static mpv_handle *mpv = NULL;
+
+static char *video_fname = NULL;
 
 static void die(const char *msg)
 {
@@ -75,409 +40,7 @@ static void on_mpv_render_update(void *ctx)
     SDL_PushEvent(&event);
 }
 
-static char *ptr_max(char *ptr1, char *ptr2)
-{
-    return ptr1 > ptr2 ? ptr1 : ptr2;
-}
-
-static int in_frame(Sub *sub)
-{
-    return sub->start_d <= ts_s_d && ts_s_d < sub->end_d;
-}
-
-static void insert_ordered(Sub *sub_new)
-{
-    if (!sub_head)
-    {
-        // First item
-        sub_head = sub_new;
-        sub_head->next = NULL;
-    }
-    else if (sub_new->start_d < sub_head->start_d)
-    {
-        // Insert at beginning (new head)
-        sub_new->next = sub_head;
-        sub_head = sub_new;
-    }
-    else
-    {
-        // Ordered insert
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (!sub_curr->next || sub_curr->next->start_d > sub_new->start_d)
-            {
-                sub_new->next = sub_curr->next;
-                sub_curr->next = sub_new;
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
-}
-
-static void show_text(char *text, char *duration)
-{
-    const char *cmd[] = {"show-text", text, duration, NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void toggle_pause()
-{
-    const char *cmd_pause[] = {"cycle", "pause", NULL};
-    mpv_command_async(mpv, 0, cmd_pause);
-}
-/**
- * Warning: target cannot accept commas! e.g. 00:00:01,000
- */
-static void exact_seek(char *target, char *flag)
-{
-    const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
-    mpv_command_async(mpv, 0, cmd_seek);
-}
-
-static void exact_seek_d(double value, char *flag)
-{
-    char target[SMALL_BUF_MAX];
-    snprintf(target, sizeof(target), "%f", value);
-    exact_seek(target, flag);
-}
-
-static double hhmmss_to_d(char *buf)
-{
-    double d = 0.0;
-    struct slre_cap caps[3];
-
-    if (slre_match("^([0-9]+):([0-9]+):([0-9]+[,|\\.][0-9]+)$", buf, strlen(buf), caps, 3) > 0)
-    {
-        if (caps[0].len && caps[1].len && caps[2].len)
-        {
-            char hh[SMALL_BUF_MAX] = {0};
-            char mm[SMALL_BUF_MAX] = {0};
-            char ss_ms[SMALL_BUF_MAX] = {0};
-
-            strncpy(hh, caps[0].ptr, caps[0].len);
-            strncpy(mm, caps[1].ptr, caps[1].len);
-            strncpy(ss_ms, caps[2].ptr, caps[2].len);
-
-            char *pos = strchr(ss_ms, ',');
-            if (pos)
-                *pos = '.';
-
-            d = strtol(hh, NULL, 10) * 3600 + strtol(mm, NULL, 10) * 60 + strtod(ss_ms, NULL);
-        }
-    }
-    else
-    {
-        printf("Invalid hhmmss format!\n");
-    }
-
-    return d;
-}
-
-static void d_to_hhmmss(double ts_d, char *ts_hhmmss_out)
-{
-    int h = ts_d / 3600;
-    int m = fmod((ts_d / 60), 60);
-    double s = fmod(ts_d, 60);
-
-    sprintf(ts_hhmmss_out, "%02d:%02d:%06.3f", h, m, s);
-    char *pos = strchr(ts_hhmmss_out, '.');
-    if (pos)
-    {
-        *pos = ',';
-    }
-}
-
-static void refresh_title()
-{
-    char title[CMD_BUF_MAX];
-
-    if (insert_mode)
-    {
-        sprintf(title, "INSERT %s", cmd_buf);
-    }
-    else
-    {
-        sprintf(title, "NORMAL %s", cmd_buf);
-    }
-
-    SDL_SetWindowTitle(window, title);
-}
-
-static void frame_step()
-{
-    const char *cmd[] = {"frame-step", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void frame_back_step()
-{
-    const char *cmd[] = {"frame-back-step", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void reload_sub()
-{
-    const char *cmd[] = {"sub-reload", NULL};
-    mtx_reload++;
-    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
-}
-
-static Sub *alloc_sub()
-{
-    return (Sub *)calloc(1, sizeof(Sub));
-}
-
-static void clear_cmd_buf()
-{
-    cmd_buf[0] = 0;
-}
-
-static void pop_char(char *text)
-{
-    int len = strlen(text);
-    if (len > 1 && text[len - 2] == '\n')
-    {
-        text[len - 2] = 0;
-    }
-    else if (len > 0)
-    {
-        text[len - 1] = 0;
-    }
-    else
-    {
-        show_text("String is empty!", "100");
-    }
-}
-
-static void add_sub(char *fname)
-{
-    if (!sub_fname)
-    {
-        const char *cmd[] = {"sub-add", fname, NULL};
-        mpv_command_async(mpv, 0, cmd);
-        sub_fname = fname;
-    }
-}
-
-static void import_sub(char *fname)
-{
-    char buf[CMD_BUF_MAX] = {0};
-    char pend_buf[CMD_BUF_MAX] = {0};
-
-    FILE *fp = fopen(fname, "r");
-    Sub *curr_sub = NULL;
-
-    while (fgets(buf, CMD_BUF_MAX, fp))
-    {
-        struct slre_cap caps[2];
-
-        if (slre_match("^([0-9]+)\n$", buf, strlen(buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                if (pend_buf[0] && curr_sub)
-                {
-                    strcat(curr_sub->text, pend_buf);
-                }
-                strncpy(pend_buf, caps[0].ptr, caps[0].len);
-            }
-        }
-        else if (slre_match("^([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+) --> ([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+)\n$", buf, strlen(buf), caps, 2) > 0)
-        {
-            if (caps[0].len && caps[1].len)
-            {
-                if (curr_sub)
-                    insert_ordered(curr_sub);
-
-                curr_sub = alloc_sub();
-
-                char start[SMALL_BUF_MAX] = {0};
-                char end[SMALL_BUF_MAX] = {0};
-
-                strncpy(start, caps[0].ptr, caps[0].len);
-                strncpy(end, caps[1].ptr, caps[1].len);
-
-                curr_sub->start_d = hhmmss_to_d(start);
-                curr_sub->end_d = hhmmss_to_d(end);
-
-                if (pend_buf[0])
-                {
-                    pend_buf[0] = 0;
-                }
-            }
-        }
-        else if (slre_match("^([^\n].+)", buf, strlen(buf), caps, 1) > 0)
-        {
-            if (pend_buf[0])
-            {
-                if (curr_sub)
-                    strcat(curr_sub->text, pend_buf);
-                pend_buf[0] = 0;
-            }
-
-            if (curr_sub && caps[0].len)
-            {
-                strncat(curr_sub->text, caps[0].ptr, caps[0].len);
-            }
-        }
-    }
-
-    if (curr_sub)
-    {
-        insert_ordered(curr_sub);
-    }
-
-    fclose(fp);
-}
-
-static void export_sub(char *fname, int highlight)
-{
-    if (mtx_reload)
-    {
-        return;
-    }
-
-    FILE *pFile = fopen(fname, "w");
-
-    if (sub_head)
-    {
-        int i = 1;
-        Sub *sub_curr = sub_head;
-
-        while (sub_curr)
-        {
-            char start_hhmmss[SMALL_BUF_MAX];
-            char end_hhmmss[SMALL_BUF_MAX];
-
-            d_to_hhmmss(sub_curr->start_d, start_hhmmss);
-            d_to_hhmmss(sub_curr->end_d, end_hhmmss);
-
-            fprintf(pFile, "%d\n", i);
-            fprintf(pFile, "%s --> %s\n", start_hhmmss, end_hhmmss);
-            if (highlight && sub_curr == sub_focused)
-                fprintf(pFile, "<font color=" COLOR_SUB_FOCUSED ">%s</font>\n\n", sub_curr->text);
-            else
-                fprintf(pFile, "%s\n\n", sub_curr->text);
-
-            sub_curr = sub_curr->next;
-            i++;
-        }
-    }
-    else
-    {
-        fprintf(pFile, SUB_PLACEHOLDER);
-    }
-
-    fclose(pFile);
-}
-
-static Sub *delete_sub(Sub *sub_target)
-{
-    Sub *sub_curr = sub_head;
-    if (sub_head == sub_target)
-    {
-        sub_head = sub_target->next;
-        sub_curr = sub_head;
-    }
-    else
-    {
-        while (sub_curr)
-        {
-            if (!sub_curr->next)
-            {
-                show_text("Target sub not found!", "100");
-                return sub_head;
-            }
-
-            if (sub_curr->next == sub_target)
-            {
-                sub_curr->next = sub_target->next;
-                break;
-            }
-
-            sub_curr = sub_curr->next;
-        }
-    }
-
-    free(sub_target);
-    return sub_curr;
-}
-
-static void export_and_reload()
-{
-    export_sub(DEFAULT_SUB_FNAME, 1);
-    reload_sub();
-}
-
-static void set_sub_focus(Sub *sub)
-{
-    sub_focused = sub;
-    export_and_reload();
-}
-
-static void save_sub()
-{
-    char sub_out_fname[PATH_MAX];
-    char msg[CMD_BUF_MAX];
-
-    strcpy(sub_out_fname, video_fname);
-    strcat(sub_out_fname, ".srt");
-    export_sub(sub_out_fname, 0);
-    sprintf(msg, "Saved: %s", sub_out_fname);
-    show_text(msg, "2000");
-}
-
-static int process_ex()
-{
-    if (cmd_buf[0] == ':')
-    {
-        char *ex_buf = cmd_buf + 1;
-        struct slre_cap caps[1];
-        if (slre_match("^([a-zA-Z]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                if (!strcmp(caps[0].ptr, "w"))
-                {
-                    save_sub();
-                }
-                else if (!strcmp(caps[0].ptr, "wq"))
-                {
-                    save_sub();
-                    return -1;
-                }
-                else if (!strcmp(caps[0].ptr, "q"))
-                {
-                    return -1;
-                }
-            }
-        }
-        else if (slre_match("^([0-9]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                // TODO: Support precise timestamps
-                long pos = strtol(caps[0].ptr, NULL, 10);
-                exact_seek_d(pos, "absolute");
-            }
-        }
-    }
-    clear_cmd_buf();
-    refresh_title();
-
-    return 0;
-}
-
-static void gen_placeholder(char *fname)
-{
-    FILE *pFile = fopen(fname, "w");
-    fprintf(pFile, SUB_PLACEHOLDER);
-    fclose(pFile);
-}
-
-static void set_window_icon()
+inline static void set_window_icon()
 {
     static uint8_t pixels[] = {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -549,380 +112,43 @@ static void set_window_icon()
     SDL_FreeSurface(surface);
 }
 
-static void init()
+static void toggle_pause()
 {
-    mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_DOUBLE);
-    gen_placeholder(DEFAULT_SUB_FNAME);
-    add_sub(DEFAULT_SUB_FNAME);
-    SDL_StartTextInput();
+    const char *cmd_pause[] = {"cycle", "pause", NULL};
+    mpv_command_async(mpv, 0, cmd_pause);
 }
 
-static void get_subs_in_frame(Sub **sub_arr, unsigned int *len)
+// Parse a regular command
+int parse_cmd(char *cmd)
 {
-    int i = 0;
-    if (sub_head)
+    if (cmd[0] == ' ')
     {
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (in_frame(sub_curr))
-            {
-                sub_arr[i] = sub_curr;
-                i++;
-            }
-            sub_curr = sub_curr->next;
-        }
+        toggle_pause();
+        return 1;
     }
 
-    *len = i;
-    sub_arr[i] = NULL;
-}
-
-static void focus_next(int seek)
-{
-    if (sub_focused->next)
-    {
-        set_sub_focus(sub_focused->next);
-        if (seek)
-            exact_seek_d(sub_focused->start_d, "absolute");
-    }
-    else
-    {
-        show_text("At last sub!\n", "100");
-    }
-}
-
-static void focus_back(int seek)
-{
-    if (sub_focused == sub_head)
-    {
-        show_text("At first sub!\n", "100");
-    }
-    else
-    {
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (sub_curr->next == sub_focused)
-            {
-                set_sub_focus(sub_curr);
-                if (seek)
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
-}
-
-static void process_cmd(char *c)
-{
-    strcat(cmd_buf, c);
-    if (cmd_buf[0] == ':')
-    {
-        goto end;
-    }
     struct slre_cap caps[2];
-    if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
+    if (slre_match("^([0-9]*)([a-zA-Z ]*)$", cmd, strlen(cmd), caps, 2) > 0)
     {
-        long q = -1;
-        if (caps[0].len)
-        {
-            q = strtol(caps[0].ptr, NULL, 10);
-        }
-
-        if (strstr(caps[1].ptr, " "))
-        {
-            toggle_pause();
-        }
-        else if (strstr(caps[1].ptr, "."))
-        {
-            // repeat
-        }
-        else if (strstr(caps[1].ptr, "a"))
-        {
-            Sub *sub_new = alloc_sub();
-            sub_new->start_d = ts_s_d;
-            sub_new->end_d = duration_d;
-
-            insert_ordered(sub_new);
-
-            set_sub_focus(sub_new);
-            insert_mode = 1;
-        }
-        else if (strstr(caps[1].ptr, "s"))
-        {
-            frame_step();
-        }
-        else if (strstr(caps[1].ptr, "S"))
-        {
-            frame_back_step();
-        }
-        else if (strstr(caps[1].ptr, "i"))
-        {
-            Sub *sub_arr[100];
-            unsigned int len;
-            get_subs_in_frame(sub_arr, &len);
-            if (len)
-            {
-                if (q == -1)
-                {
-                    for (int i = 0; i < len; i++)
-                    {
-                        if (sub_focused == sub_arr[i])
-                        {
-                            q = i;
-                            break;
-                        }
-                    }
-                    if (q == -1)
-                        q = 0;
-                }
-
-                if (q < len)
-                {
-                    set_sub_focus(sub_arr[q]);
-                    insert_mode = 1;
-                }
-                else
-                {
-                    show_text("Out of bounds!", "100");
-                }
-            }
-            else
-            {
-                show_text("No sub in frame!", "100");
-            }
-        }
-        else if (strstr(caps[1].ptr, "w"))
-        {
-            if (sub_focused)
-            {
-                focus_next(1);
-            }
-        }
-        else if (strstr(caps[1].ptr, "W"))
-        {
-            if (sub_focused)
-            {
-                focus_next(0);
-            }
-        }
-        // else if (strstr(caps[1].ptr, "b"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         focus_back(1);
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "B"))
-        {
-            if (sub_focused)
-            {
-                focus_back(0);
-            }
-        }
-        // else if (strstr(caps[1].ptr, "o"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         if (q == -1)
-        //             q = 0;
-        //         exact_seek_d(sub_focused->start_d - (q * STEP_MEDIUM), "absolute");
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "b"))
-        {
-            if (sub_focused)
-            {
-                if (ts_s_d == sub_focused->start_d)
-                {
-                    focus_back(1);
-                }
-                else
-                {
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                }
-            }
-        }
-        else if (strstr(caps[1].ptr, "e"))
-        {
-            if (sub_focused)
-            {
-                exact_seek_d(sub_focused->end_d, "absolute");
-            }
-        }
-        else if (strstr(caps[1].ptr, "G"))
-        {
-            if (q == -1)
-            {
-                const char *cmd_seek[] = {"seek", "100", "absolute-percent", "exact", NULL};
-                mpv_command_async(mpv, 0, cmd_seek);
-            }
-            else
-            {
-                exact_seek_d(q, "absolute");
-            }
-        }
-        // else if (strstr(caps[1].ptr, "O"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         if (q == -1)
-        //             q = 0;
-        //         exact_seek_d(sub_focused->end_d - (q * STEP_MEDIUM), "absolute");
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "h"))
-        {
-            if (sub_focused)
-            {
-                // TODO: Write sub clone function
-                Sub *sub_new = alloc_sub();
-
-                sub_new->start_d = ts_s_d;
-                sub_new->end_d = sub_focused->end_d;
-                strncpy(sub_new->text, sub_focused->text, sizeof(sub_new->text));
-
-                insert_ordered(sub_new);
-
-                delete_sub(sub_focused);
-                set_sub_focus(sub_new);
-            }
-        }
-        else if (strstr(caps[1].ptr, "l"))
-        {
-            if (sub_focused)
-            {
-                sub_focused->end_d = ts_s_d;
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Hj"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->start_d -= STEP_SMALL;
-                else
-                    sub_focused->start_d -= q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Hk"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->start_d += STEP_SMALL;
-                else
-                    sub_focused->start_d += q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Lj"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->end_d -= STEP_SMALL;
-                else
-                    sub_focused->end_d -= q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Lk"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->end_d += STEP_SMALL;
-                else
-                    sub_focused->end_d += q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "j"))
-        {
-            q == -1 ? exact_seek("-" STR(STEP_DEFAULT), "relative") : exact_seek_d(q * -1, "relative");
-        }
-        else if (strstr(caps[1].ptr, "k"))
-        {
-            q == -1 ? exact_seek(STR(STEP_DEFAULT), "relative") : exact_seek_d(q * 1, "relative");
-        }
-        else if (strstr(caps[1].ptr, "J"))
-        {
-            q == -1 ? exact_seek("-" STR(STEP_SMALL), "relative") : exact_seek_d(q * -STEP_SMALL, "relative");
-        }
-        else if (strstr(caps[1].ptr, "K"))
-        {
-            q == -1 ? exact_seek(STR(STEP_SMALL), "relative") : exact_seek_d(q * STEP_SMALL, "relative");
-        }
-        else if (strstr(caps[1].ptr, "gg"))
-        {
-            exact_seek("0", "absolute");
-        }
-        else if (strstr(caps[1].ptr, "dd"))
-        {
-            if (sub_focused)
-            {
-                set_sub_focus(delete_sub(sub_focused));
-            }
-        }
-        else
-        {
-            goto end;
-        }
-        clear_cmd_buf();
+        printf("v: %s, [%d]\n", caps[0].ptr, caps[0].len);
+        printf("s: %s [%d]\n", caps[1].ptr, caps[1].len);
     }
-    else
-    {
-        // No match
-        printf("Error parsing [%s]\n", cmd_buf);
-        clear_cmd_buf();
-    }
-end:
-    refresh_title();
+
+    return 0;
 }
 
-static void insert_text(char *text)
+// Handle SDL text input
+void handle_text_input(const char *text)
 {
-    if (sub_focused)
-    {
-        if (in_frame(sub_focused))
-        {
-            strcat(sub_focused->text, text);
-            export_and_reload();
-        }
-        else
-        {
-            show_text("Sub not in frame!", "100");
-        }
-    }
-}
+    static char global_cmd_buf[1024] = {0};
+    // printf("input %s\n", text);
+    printf("buf %s\n", global_cmd_buf);
 
-static void pop_word(char *text)
-{
-    int len = strlen(text);
-    if (len)
+    // Safe strcat
+    strncat(global_cmd_buf, text, sizeof(global_cmd_buf) - strlen(global_cmd_buf) - 1);
+    if (parse_cmd(global_cmd_buf))
     {
-        while (isspace(text[len - 1]))
-            len--;
-        text[len] = 0;
-
-        char *pos = ptr_max(strrchr(text, ' '), strrchr(text, '\n'));
-        if (pos)
-        {
-            *(pos + 1) = 0;
-        }
-        else
-        {
-            text[0] = 0;
-        }
+        global_cmd_buf[0] = 0;
     }
 }
 
@@ -950,7 +176,7 @@ int main(int argc, char *argv[])
 
     window =
         SDL_CreateWindow("Sbubby", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         640, 360, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                         WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window)
         die("failed to create SDL window");
 
@@ -1003,9 +229,11 @@ int main(int argc, char *argv[])
     //  users which run OpenGL on a different thread.)
     mpv_render_context_set_update_callback(mpv_gl, on_mpv_render_update, NULL);
 
-    // Play this file.
+    // Loop the video
     const char *cmd_loop[] = {"set", "loop", "inf", NULL};
     mpv_command_async(mpv, 0, cmd_loop);
+
+    // Play this file.
     const char *cmd[] = {"loadfile", video_fname, NULL};
     mpv_command_async(mpv, 0, cmd);
 
@@ -1024,78 +252,26 @@ int main(int argc, char *argv[])
                 redraw = 1;
             break;
         case SDL_TEXTINPUT:
-            if (insert_mode)
-            {
-                insert_text(event.text.text);
-            }
-            else
-            {
-                process_cmd(event.text.text);
-            }
+            // Continuous text input
+            handle_text_input(event.text.text);
             break;
         case SDL_KEYDOWN:
+            // Single keypresses
             if (event.key.keysym.sym == SDLK_ESCAPE)
             {
-                if (insert_mode)
-                {
-                    insert_mode = 0;
-                }
-                else
-                {
-                    clear_cmd_buf();
-                }
-                refresh_title();
             }
             else if (event.key.keysym.sym == SDLK_w)
             {
-                if (insert_mode)
-                {
-                    if (sub_focused)
-                    {
-                        if (SDL_GetModState() & KMOD_CTRL)
-                        {
-                            pop_word(sub_focused->text);
-                            export_and_reload();
-                        }
-                    }
-                }
             }
             else if (event.key.keysym.sym == SDLK_BACKSPACE)
             {
-                if (insert_mode)
-                {
-                    if (sub_focused)
-                    {
-                        if (SDL_GetModState() & KMOD_CTRL)
-                        {
-                            pop_word(sub_focused->text);
-                        }
-                        else
-                        {
-                            pop_char(sub_focused->text);
-                        }
-                        export_and_reload();
-                    }
-                }
-                else
-                {
-                    pop_char(cmd_buf);
-                    refresh_title();
-                }
             }
             else if (event.key.keysym.sym == SDLK_RETURN)
             {
-                if (insert_mode)
-                {
-                    insert_text("\n");
-                }
-                else
-                {
-                    if (process_ex() == -1)
-                    {
-                        goto done;
-                    }
-                }
+            }
+            else if (event.key.keysym.sym == SDLK_SPACE)
+            {
+                // toggle_pause();
             }
             break;
         default:
@@ -1116,21 +292,12 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
-                        init();
                         if (argc >= 3)
                         {
-                            import_sub(argv[2]);
-                            if (!sub_focused && sub_head)
-                                sub_focused = sub_head;
-                            export_and_reload();
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
-                        if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
-                        {
-                            mtx_reload--;
-                        }
                     }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
@@ -1143,7 +310,6 @@ int main(int argc, char *argv[])
                                 double value = *(double *)(evp->data);
                                 if (value)
                                 {
-                                    ts_s_d = value;
                                 }
                             }
                         }
@@ -1154,7 +320,6 @@ int main(int argc, char *argv[])
                                 double value = *(double *)(evp->data);
                                 if (value)
                                 {
-                                    duration_d = value;
                                 }
                             }
                         }
@@ -1179,7 +344,6 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
-            // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_DOUBLE);
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
 
             int w, h;
