@@ -4,3 +4,6 @@ obj/
 *.exe
 *.srt
 .vscode/tasks.json
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+*.mp4
