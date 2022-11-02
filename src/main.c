@@ -11,11 +11,27 @@
 #define WINDOW_WIDTH 640
 #define WINDOW_HEIGHT 360
 
+#define DEFAULT_UNIT_j -1
+#define DEFAULT_UNIT_k 1
+#define DEFAULT_COUNT_jk 3
+
+#define DEFAULT_UNIT_J -0.1
+#define DEFAULT_UNIT_K 0.1
+#define DEFAULT_COUNT_JK 1
+
+// Global command buffer
+static char cmd_buf[32] = {0};
+
+// Filename of the current video
+static char *video_fname = NULL;
+
+// 0 NORMAL
+// 1 INSERT
+static int curr_mode = 0;
+
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
 static mpv_handle *mpv = NULL;
-
-static char *video_fname = NULL;
 
 static void die(const char *msg)
 {
@@ -38,6 +54,45 @@ static void on_mpv_render_update(void *ctx)
 {
     SDL_Event event = {.type = wakeup_on_mpv_render_update};
     SDL_PushEvent(&event);
+}
+
+static void toggle_pause()
+{
+    const char *cmd[] = {"cycle", "pause", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+static void frame_step()
+{
+    const char *cmd[] = {"frame-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+static void frame_back_step()
+{
+    const char *cmd[] = {"frame-back-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+static void seek_start()
+{
+    const char *cmd[] = {"seek", "0", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+static void seek_end()
+{
+    const char *cmd[] = {"seek", "100", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+// Seek relative seconds from current position
+static void seek_relative(double value)
+{
+    char value_str[32];
+    snprintf(value_str, 32, "%f", value);
+    const char *cmd[] = {"seek", value_str, "relative", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
 inline static void set_window_icon()
@@ -112,44 +167,179 @@ inline static void set_window_icon()
     SDL_FreeSurface(surface);
 }
 
-static void toggle_pause()
+void set_window_title(const char *text)
 {
-    const char *cmd_pause[] = {"cycle", "pause", NULL};
-    mpv_command_async(mpv, 0, cmd_pause);
+    char title[256] = {0};
+
+    switch (curr_mode)
+    {
+    case 0:
+        strncat(title, "NORMAL ", sizeof(title) - strlen(title) - 1);
+        break;
+    case 1:
+        strncat(title, "INSERT ", sizeof(title) - strlen(title) - 1);
+        break;
+    default:
+        break;
+    }
+
+    strncat(title, text, sizeof(title) - strlen(title) - 1);
+    SDL_SetWindowTitle(window, title);
 }
 
-// Parse a regular command
-int parse_cmd(char *cmd)
+// Pop the last char from a string
+static void str_pop(char *str)
 {
-    if (cmd[0] == ' ')
+    size_t len = strlen(str);
+    if (len > 0)
     {
-        toggle_pause();
-        return 1;
+        str[len - 1] = '\0';
     }
+}
 
+void clear_cmd_buf()
+{
+    cmd_buf[0] = 0;
+}
+
+// Parse commands starting with :
+void parse_ex(const char *cmd_raw)
+{
+    struct slre_cap caps[1];
+    if (slre_match("^:([a-zA-Z_0-9]*)$", cmd_raw, strlen(cmd_raw), caps, 1) > 0)
+    {
+        const char *cmd = caps[0].ptr;
+        // int cmd_len = caps[0].len;
+
+        if (strcmp(cmd, "wq") == 0)
+        {
+            printf("Save and quit\n");
+        }
+        else if (strcmp(cmd, "q") == 0)
+        {
+            printf("Quit\n");
+        }
+    }
+}
+
+// Parse a NORMAL mode command
+// Returns 0 if command was parsed successfully
+// Returns 1 if expecting more commands
+int parse_cmd(const char *cmd)
+{
     struct slre_cap caps[2];
-    if (slre_match("^([0-9]*)([a-zA-Z ]*)$", cmd, strlen(cmd), caps, 2) > 0)
+    if (slre_match("^([0-9]*)([a-zA-Z]*)$", cmd, strlen(cmd), caps, 2) > 0)
     {
-        printf("v: %s, [%d]\n", caps[0].ptr, caps[0].len);
-        printf("s: %s [%d]\n", caps[1].ptr, caps[1].len);
+        long count = -1;
+        const char *action = caps[1].ptr;
+        int action_len = caps[1].len;
+
+        if (action[0] == '\0')
+        {
+            // Empty action, wait for more
+            return 1;
+        }
+
+        if (caps[0].len > 0)
+        {
+            // Get count value
+            count = strtol(caps[0].ptr, NULL, 10);
+        }
+
+        // Parse first character
+        switch (action[0])
+        {
+        case 'j':
+            if (count == -1)
+                count = DEFAULT_COUNT_jk;
+            seek_relative(count * DEFAULT_UNIT_j);
+            return 0;
+
+        case 'k':
+            if (count == -1)
+                count = DEFAULT_COUNT_jk;
+            seek_relative(count * DEFAULT_UNIT_k);
+            return 0;
+
+        case 'J':
+            if (count == -1)
+                count = DEFAULT_COUNT_JK;
+            seek_relative(count * DEFAULT_UNIT_J);
+            return 0;
+
+        case 'K':
+            if (count == -1)
+                count = DEFAULT_COUNT_JK;
+            seek_relative(count * DEFAULT_UNIT_K);
+            return 0;
+
+        case 'h':
+            frame_back_step();
+            return 0;
+
+        case 'l':
+            frame_step();
+            return 0;
+
+        case 'g':
+            // Check bounds
+            if (action_len < 2)
+                return 1;
+
+            switch (action[1])
+            {
+            case 'g':
+                seek_start();
+                return 0;
+
+            default:
+                break;
+            }
+
+        case 'G':
+            seek_end();
+            return 0;
+
+        case 'i':
+            // Enter INSERT mode
+            curr_mode = 1;
+            set_window_title("");
+            break;
+
+        default:
+            break;
+        }
     }
 
+    // Invalid action, clear buffer
     return 0;
 }
 
-// Handle SDL text input
+// Concat input character to command buffer and parse
 void handle_text_input(const char *text)
 {
-    static char global_cmd_buf[1024] = {0};
-    // printf("input %s\n", text);
-    printf("buf %s\n", global_cmd_buf);
+    strncat(cmd_buf, text, sizeof(cmd_buf) - strlen(cmd_buf) - 1);
 
-    // Safe strcat
-    strncat(global_cmd_buf, text, sizeof(global_cmd_buf) - strlen(global_cmd_buf) - 1);
-    if (parse_cmd(global_cmd_buf))
+    if (cmd_buf[0] == ':')
     {
-        global_cmd_buf[0] = 0;
+        goto end;
     }
+
+    if (text[0] == ' ')
+    {
+        toggle_pause();
+        goto clear;
+    }
+
+    if (parse_cmd(cmd_buf) == 0)
+    {
+    clear:
+        // Clear buffer
+        clear_cmd_buf();
+    }
+
+end:
+    set_window_title(cmd_buf);
 }
 
 int main(int argc, char *argv[])
@@ -253,26 +443,49 @@ int main(int argc, char *argv[])
             break;
         case SDL_TEXTINPUT:
             // Continuous text input
-            handle_text_input(event.text.text);
+            if (curr_mode == 0)
+            {
+                handle_text_input(event.text.text);
+            }
+            else if (curr_mode == 1)
+            {
+            }
             break;
         case SDL_KEYDOWN:
             // Single keypresses
-            if (event.key.keysym.sym == SDLK_ESCAPE)
+            switch (event.key.keysym.sym)
             {
+            case SDLK_ESCAPE:
+                if (curr_mode == 0)
+                {
+                    clear_cmd_buf();
+                    set_window_title("");
+                }
+                else if (curr_mode == 1)
+                {
+                    curr_mode = 0;
+                    set_window_title("");
+                }
+                break;
+            case SDLK_BACKSPACE:
+                str_pop(cmd_buf);
+                set_window_title(cmd_buf);
+                break;
+            case SDLK_RETURN:
+                parse_ex(cmd_buf);
+                clear_cmd_buf();
+                set_window_title("");
+                break;
+
+            default:
+                break;
             }
-            else if (event.key.keysym.sym == SDLK_w)
-            {
-            }
-            else if (event.key.keysym.sym == SDLK_BACKSPACE)
-            {
-            }
-            else if (event.key.keysym.sym == SDLK_RETURN)
-            {
-            }
-            else if (event.key.keysym.sym == SDLK_SPACE)
-            {
-                // toggle_pause();
-            }
+            // else if (event.key.keysym.sym == SDLK_w)
+            // {
+            // }
+            // else if (event.key.keysym.sym == SDLK_RETURN)
+            // {
+            // }
             break;
         default:
             // Happens when there is new work for the render thread (such as
