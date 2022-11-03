@@ -68,6 +68,8 @@ void set_focused_start_ts(double ts)
 {
     if (sub_focused == NULL)
         return;
+    if (ts > sub_focused->end_ts)
+        return;
     sub_focused->start_ts = ts;
     export_sub(SUB_FILENAME_TMP, 1);
     sub_reload();
@@ -76,6 +78,8 @@ void set_focused_start_ts(double ts)
 void set_focused_end_ts(double ts)
 {
     if (sub_focused == NULL)
+        return;
+    if (ts < sub_focused->start_ts)
         return;
     sub_focused->end_ts = ts;
     export_sub(SUB_FILENAME_TMP, 1);
