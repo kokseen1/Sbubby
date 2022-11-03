@@ -6,7 +6,10 @@
 #define REPLY_USERDATA_SUB_RELOAD 8000
 
 extern double curr_timestamp;
+
 extern int sub_reload_semaphore;
+
+void show_text(const char *, const int);
 
 void set_window_title(const char *);
 
@@ -19,6 +22,8 @@ void frame_back_step();
 void seek_start();
 
 void seek_end();
+
+void seek_absolute(const double);
 
 void seek_relative(const double);
 

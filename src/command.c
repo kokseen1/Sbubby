@@ -20,13 +20,12 @@ static void set_title(const char *text)
 
     switch (curr_mode)
     {
-    case 0:
+    case MODE_NORMAL:
         strncat(title, "NORMAL ", sizeof(title) - strlen(title) - 1);
         break;
-    case 1:
+
+    case MODE_INSERT:
         strncat(title, "INSERT ", sizeof(title) - strlen(title) - 1);
-        break;
-    default:
         break;
     }
 
@@ -72,7 +71,6 @@ static void parse_ex(const char *cmd_raw)
 // Returns 1 if expecting more commands
 static int parse_normal_cmd(const char *cmd)
 {
-    // printf("ts %f\n", curr_timestamp);
     struct slre_cap caps[2];
     if (slre_match("^([0-9]*)([a-zA-Z]*)$", cmd, strlen(cmd), caps, 2) > 0)
     {
@@ -137,10 +135,8 @@ static int parse_normal_cmd(const char *cmd)
             case 'g':
                 seek_start();
                 return 0;
-
-            default:
-                break;
             }
+            return 0;
 
         case 'G':
             seek_end();
@@ -148,16 +144,50 @@ static int parse_normal_cmd(const char *cmd)
 
         case 'i':
             set_mode(MODE_INSERT);
-            break;
+            return 0;
 
         case 'a':
             // New sub at current time
             new_sub(curr_timestamp);
             set_mode(MODE_INSERT);
-            break;
+            return 0;
 
-        default:
-            break;
+        case 'w':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            focus_next_sub(count);
+            seek_focused_start();
+            return 0;
+
+        case 'W':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            focus_next_sub(count);
+            return 0;
+
+        case 'B':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            focus_prev_sub(count);
+            return 0;
+
+        case 'b':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            back_sub(count);
+            return 0;
+
+        case 'e':
+            seek_focused_end();
+            return 0;
+
+        case 'O':
+            set_focused_start_ts(curr_timestamp);
+            return 0;
+
+        case 'o':
+            set_focused_end_ts(curr_timestamp);
+            return 0;
         }
     }
 

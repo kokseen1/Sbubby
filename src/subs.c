@@ -55,6 +55,119 @@ static inline Sub *alloc_sub()
     return sub;
 }
 
+// Sets focused sub and reloads
+// Does not check if sub is valid
+static void set_focus(Sub *sub)
+{
+    sub_focused = sub;
+    export_sub(SUB_FILENAME_TMP, 1);
+    sub_reload();
+}
+
+void set_focused_start_ts(double ts)
+{
+    if (sub_focused == NULL)
+        return;
+    sub_focused->start_ts = ts;
+    export_sub(SUB_FILENAME_TMP, 1);
+    sub_reload();
+}
+
+void set_focused_end_ts(double ts)
+{
+    if (sub_focused == NULL)
+        return;
+    sub_focused->end_ts = ts;
+    export_sub(SUB_FILENAME_TMP, 1);
+    sub_reload();
+}
+
+void seek_focused_start()
+{
+    if (sub_focused == NULL)
+        return;
+    seek_absolute(sub_focused->start_ts);
+}
+
+void seek_focused_end()
+{
+    if (sub_focused == NULL)
+        return;
+    seek_absolute(sub_focused->end_ts);
+}
+
+void back_sub(int count)
+{
+    if (sub_focused == NULL)
+        return;
+
+    if (curr_timestamp != sub_focused->start_ts)
+    {
+        seek_absolute(sub_focused->start_ts);
+        count--;
+    }
+
+    focus_prev_sub(count);
+    seek_focused_start();
+}
+
+void focus_prev_sub(int count)
+{
+    if (sub_focused == NULL)
+        return;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (sub_focused == sub_head)
+        {
+            show_text("At first sub!", 100);
+            return;
+        }
+
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (sub_curr->next == sub_focused)
+            {
+                set_focus(sub_curr);
+                break;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+}
+
+void focus_next_sub(int count)
+{
+    if (sub_focused == NULL)
+        return;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (sub_focused->next == NULL)
+        {
+            show_text("At last sub!", 100);
+            return;
+        }
+
+        set_focus(sub_focused->next);
+    }
+}
+
+double get_focused_sub_start()
+{
+    if (sub_focused == NULL)
+        return -1;
+    return sub_focused->start_ts;
+}
+
+double get_focused_sub_end()
+{
+    if (sub_focused == NULL)
+        return -1;
+    return sub_focused->end_ts;
+}
+
 // Create a new sub at timestamp
 void new_sub(const double ts)
 {

@@ -120,6 +120,14 @@ static inline void file_loaded_init()
 
 // External functions are defined below
 
+void show_text(const char *text, const int duration)
+{
+    char duration_str[32];
+    snprintf(duration_str, 32, "%d", duration);
+    const char *cmd[] = {"show-text", text, duration_str, NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
 void set_window_title(const char *title)
 {
     SDL_SetWindowTitle(window, title);
@@ -154,6 +162,14 @@ void seek_start()
 void seek_end()
 {
     const char *cmd[] = {"seek", "100", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void seek_absolute(const double value)
+{
+    char value_str[32];
+    snprintf(value_str, 32, "%f", value);
+    const char *cmd[] = {"seek", value_str, "absolute", "exact", NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 

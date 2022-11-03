@@ -18,3 +18,17 @@ void sub_insert_text(const char *);
 void export_sub(const char *, int);
 
 void subs_init();
+
+void seek_focused_start();
+
+void seek_focused_end();
+
+void back_sub(int);
+
+void focus_prev_sub(int);
+
+void focus_next_sub(int);
+
+void set_focused_start_ts(double);
+
+void set_focused_end_ts(double);
