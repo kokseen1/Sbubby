@@ -3,7 +3,7 @@
 #include <math.h>
 
 // Pop the last char from a string
-void str_pop(char *str)
+void pop_char(char *str)
 {
     size_t len = strlen(str);
     if (len > 0)

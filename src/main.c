@@ -7,9 +7,11 @@
 #include <main.h>
 #include <command.h>
 #include <utils.h>
+#include <subs.h>
 
-// Extern global
+// Extern globals
 double curr_timestamp;
+int sub_reload_semaphore;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -110,6 +112,12 @@ static inline void set_window_icon()
     SDL_FreeSurface(surface);
 }
 
+// Function to be called when file is loaded
+static inline void file_loaded_init()
+{
+    subs_init();
+}
+
 // External functions are defined below
 
 void set_window_title(const char *title)
@@ -168,15 +176,19 @@ void sub_add(const char *filename)
 
 void sub_reload()
 {
+    // Prevent writing to file when reloading
+    sub_reload_semaphore++;
+
     const char *cmd[] = {"sub-reload", NULL};
-    mpv_command_async(mpv, 0, cmd);
+    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
 }
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
         die("Usage: sbubby video.mp4 [sub.srt]");
-    char *video_fname = argv[1];
+
+    const char *video_fname = argv[1];
 
     mpv = mpv_create();
     if (!mpv)
@@ -280,36 +292,18 @@ int main(int argc, char *argv[])
             switch (event.key.keysym.sym)
             {
             case SDLK_ESCAPE:
-                // if (curr_mode == 0)
-                // {
-                //     clear_cmd_buf();
-                //     set_window_title("");
-                // }
-                // else if (curr_mode == 1)
-                // {
-                //     curr_mode = 0;
-                //     set_window_title("");
-                // }
+                handle_escape();
                 break;
             case SDLK_BACKSPACE:
-                // str_pop(cmd_buf);
-                // set_window_title(cmd_buf);
+                handle_backspace();
                 break;
             case SDLK_RETURN:
-                // parse_ex(cmd_buf);
-                // clear_cmd_buf();
-                // set_window_title("");
+                handle_return();
                 break;
 
             default:
                 break;
             }
-            // else if (event.key.keysym.sym == SDLK_w)
-            // {
-            // }
-            // else if (event.key.keysym.sym == SDLK_RETURN)
-            // {
-            // }
             break;
         default:
             // Happens when there is new work for the render thread (such as
@@ -329,18 +323,21 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
-                        if (argc >= 3)
-                        {
-                        }
+                        file_loaded_init();
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
+                        if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
+                        {
+                            sub_reload_semaphore--;
+                        }
                     }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
                         if (strcmp(evp->name, "time-pos") == 0 && evp->format == MPV_FORMAT_DOUBLE)
                         {
+                            // Store current timestamp globally
                             curr_timestamp = *(double *)(evp->data);
                         }
                     }

@@ -57,10 +57,12 @@ static void parse_ex(const char *cmd_raw)
         if (strcmp(cmd, "wq") == 0)
         {
             printf("Save and quit\n");
+            exit(0);
         }
         else if (strcmp(cmd, "q") == 0)
         {
             printf("Quit\n");
+            exit(0);
         }
     }
 }
@@ -149,6 +151,7 @@ static int parse_normal_cmd(const char *cmd)
             break;
 
         case 'a':
+            // New sub at current time
             new_sub(curr_timestamp);
             set_mode(MODE_INSERT);
             break;
@@ -165,8 +168,9 @@ static int parse_normal_cmd(const char *cmd)
 // Process keypresses based on mode
 void handle_text_input(const char *text)
 {
-    if (curr_mode == MODE_NORMAL)
+    switch (curr_mode)
     {
+    case MODE_NORMAL:
         // Concat input text to command buffer and parse
         strncat(cmd_buf, text, sizeof(cmd_buf) - strlen(cmd_buf) - 1);
 
@@ -192,8 +196,62 @@ void handle_text_input(const char *text)
 
     end:
         set_title(cmd_buf);
+        break;
+
+    case MODE_INSERT:
+        // Edit sub text
+        sub_insert_text(text);
+        break;
     }
-    else if (curr_mode == MODE_INSERT)
+}
+
+// Handle escape keypress
+void handle_escape()
+{
+    switch (curr_mode)
     {
+    case MODE_NORMAL:
+        clear_cmd_buf();
+        break;
+
+    case MODE_INSERT:
+        // Exit insert mode
+        set_mode(MODE_NORMAL);
+        break;
+    }
+
+    set_title("");
+}
+
+// Handle enter keypress
+void handle_return()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        // Parse command buffer as Ex command
+        parse_ex(cmd_buf);
+        clear_cmd_buf();
+        set_title("");
+        break;
+
+    case MODE_INSERT:
+        // Newline
+        break;
+    }
+}
+
+// Handle backspace keypress
+void handle_backspace()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        pop_char(cmd_buf);
+        set_title(cmd_buf);
+        break;
+
+    case MODE_INSERT:
+        break;
     }
 }

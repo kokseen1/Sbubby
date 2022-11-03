@@ -1,5 +1,8 @@
 #pragma once
 
+#define SUB_FILENAME_TMP "_sbubby_tmp.srt"
+#define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
+
 typedef struct Sub
 {
     double start_ts;
@@ -9,3 +12,9 @@ typedef struct Sub
 } Sub;
 
 void new_sub(const double);
+
+void sub_insert_text(const char *);
+
+void export_sub(const char *, int);
+
+void subs_init();

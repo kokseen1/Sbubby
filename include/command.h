@@ -12,3 +12,9 @@
 #define DEFAULT_COUNT_JK 1
 
 void handle_text_input(const char *);
+
+void handle_escape();
+
+void handle_return();
+
+void handle_backspace();
