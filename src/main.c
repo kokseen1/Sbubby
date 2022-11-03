@@ -1,33 +1,15 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include <SDL2/SDL.h>
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
-#include <slre.h>
+#include <main.h>
+#include <command.h>
+#include <utils.h>
 
-#define WINDOW_WIDTH 640
-#define WINDOW_HEIGHT 360
-
-#define DEFAULT_UNIT_j -1
-#define DEFAULT_UNIT_k 1
-#define DEFAULT_COUNT_jk 3
-
-#define DEFAULT_UNIT_J -0.1
-#define DEFAULT_UNIT_K 0.1
-#define DEFAULT_COUNT_JK 1
-
-// Global command buffer
-static char cmd_buf[32] = {0};
-
-// Filename of the current video
-static char *video_fname = NULL;
-
-// 0 NORMAL
-// 1 INSERT
-static int curr_mode = 0;
+// Extern global
+double curr_timestamp;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -56,46 +38,7 @@ static void on_mpv_render_update(void *ctx)
     SDL_PushEvent(&event);
 }
 
-static void toggle_pause()
-{
-    const char *cmd[] = {"cycle", "pause", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void frame_step()
-{
-    const char *cmd[] = {"frame-step", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void frame_back_step()
-{
-    const char *cmd[] = {"frame-back-step", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void seek_start()
-{
-    const char *cmd[] = {"seek", "0", "absolute-percent", "exact", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-static void seek_end()
-{
-    const char *cmd[] = {"seek", "100", "absolute-percent", "exact", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-// Seek relative seconds from current position
-static void seek_relative(double value)
-{
-    char value_str[32];
-    snprintf(value_str, 32, "%f", value);
-    const char *cmd[] = {"seek", value_str, "relative", "exact", NULL};
-    mpv_command_async(mpv, 0, cmd);
-}
-
-inline static void set_window_icon()
+static inline void set_window_icon()
 {
     static uint8_t pixels[] = {
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -167,186 +110,73 @@ inline static void set_window_icon()
     SDL_FreeSurface(surface);
 }
 
-void set_window_title(const char *text)
+// External functions are defined below
+
+void set_window_title(const char *title)
 {
-    char title[256] = {0};
-
-    switch (curr_mode)
-    {
-    case 0:
-        strncat(title, "NORMAL ", sizeof(title) - strlen(title) - 1);
-        break;
-    case 1:
-        strncat(title, "INSERT ", sizeof(title) - strlen(title) - 1);
-        break;
-    default:
-        break;
-    }
-
-    strncat(title, text, sizeof(title) - strlen(title) - 1);
     SDL_SetWindowTitle(window, title);
 }
 
-// Pop the last char from a string
-static void str_pop(char *str)
+// Playback
+
+void toggle_pause()
 {
-    size_t len = strlen(str);
-    if (len > 0)
-    {
-        str[len - 1] = '\0';
-    }
+    const char *cmd[] = {"cycle", "pause", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
-void clear_cmd_buf()
+void frame_step()
 {
-    cmd_buf[0] = 0;
+    const char *cmd[] = {"frame-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
-// Parse commands starting with :
-void parse_ex(const char *cmd_raw)
+void frame_back_step()
 {
-    struct slre_cap caps[1];
-    if (slre_match("^:([a-zA-Z_0-9]*)$", cmd_raw, strlen(cmd_raw), caps, 1) > 0)
-    {
-        const char *cmd = caps[0].ptr;
-        // int cmd_len = caps[0].len;
-
-        if (strcmp(cmd, "wq") == 0)
-        {
-            printf("Save and quit\n");
-        }
-        else if (strcmp(cmd, "q") == 0)
-        {
-            printf("Quit\n");
-        }
-    }
+    const char *cmd[] = {"frame-back-step", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
-// Parse a NORMAL mode command
-// Returns 0 if command was parsed successfully
-// Returns 1 if expecting more commands
-int parse_cmd(const char *cmd)
+void seek_start()
 {
-    struct slre_cap caps[2];
-    if (slre_match("^([0-9]*)([a-zA-Z]*)$", cmd, strlen(cmd), caps, 2) > 0)
-    {
-        long count = -1;
-        const char *action = caps[1].ptr;
-        int action_len = caps[1].len;
-
-        if (action[0] == '\0')
-        {
-            // Empty action, wait for more
-            return 1;
-        }
-
-        if (caps[0].len > 0)
-        {
-            // Get count value
-            count = strtol(caps[0].ptr, NULL, 10);
-        }
-
-        // Parse first character
-        switch (action[0])
-        {
-        case 'j':
-            if (count == -1)
-                count = DEFAULT_COUNT_jk;
-            seek_relative(count * DEFAULT_UNIT_j);
-            return 0;
-
-        case 'k':
-            if (count == -1)
-                count = DEFAULT_COUNT_jk;
-            seek_relative(count * DEFAULT_UNIT_k);
-            return 0;
-
-        case 'J':
-            if (count == -1)
-                count = DEFAULT_COUNT_JK;
-            seek_relative(count * DEFAULT_UNIT_J);
-            return 0;
-
-        case 'K':
-            if (count == -1)
-                count = DEFAULT_COUNT_JK;
-            seek_relative(count * DEFAULT_UNIT_K);
-            return 0;
-
-        case 'h':
-            frame_back_step();
-            return 0;
-
-        case 'l':
-            frame_step();
-            return 0;
-
-        case 'g':
-            // Check bounds
-            if (action_len < 2)
-                return 1;
-
-            switch (action[1])
-            {
-            case 'g':
-                seek_start();
-                return 0;
-
-            default:
-                break;
-            }
-
-        case 'G':
-            seek_end();
-            return 0;
-
-        case 'i':
-            // Enter INSERT mode
-            curr_mode = 1;
-            set_window_title("");
-            break;
-
-        default:
-            break;
-        }
-    }
-
-    // Invalid action, clear buffer
-    return 0;
+    const char *cmd[] = {"seek", "0", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
-// Concat input character to command buffer and parse
-void handle_text_input(const char *text)
+void seek_end()
 {
-    strncat(cmd_buf, text, sizeof(cmd_buf) - strlen(cmd_buf) - 1);
+    const char *cmd[] = {"seek", "100", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
 
-    if (cmd_buf[0] == ':')
-    {
-        goto end;
-    }
+// Seek relative seconds from current position
+void seek_relative(const double value)
+{
+    char value_str[32];
+    snprintf(value_str, 32, "%f", value);
+    const char *cmd[] = {"seek", value_str, "relative", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
 
-    if (text[0] == ' ')
-    {
-        toggle_pause();
-        goto clear;
-    }
+// Subtitling
 
-    if (parse_cmd(cmd_buf) == 0)
-    {
-    clear:
-        // Clear buffer
-        clear_cmd_buf();
-    }
+void sub_add(const char *filename)
+{
+    const char *cmd[] = {"sub-add", filename, NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
 
-end:
-    set_window_title(cmd_buf);
+void sub_reload()
+{
+    const char *cmd[] = {"sub-reload", NULL};
+    mpv_command_async(mpv, 0, cmd);
 }
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
         die("Usage: sbubby video.mp4 [sub.srt]");
-    video_fname = argv[1];
+    char *video_fname = argv[1];
 
     mpv = mpv_create();
     if (!mpv)
@@ -443,38 +273,32 @@ int main(int argc, char *argv[])
             break;
         case SDL_TEXTINPUT:
             // Continuous text input
-            if (curr_mode == 0)
-            {
-                handle_text_input(event.text.text);
-            }
-            else if (curr_mode == 1)
-            {
-            }
+            handle_text_input(event.text.text);
             break;
         case SDL_KEYDOWN:
             // Single keypresses
             switch (event.key.keysym.sym)
             {
             case SDLK_ESCAPE:
-                if (curr_mode == 0)
-                {
-                    clear_cmd_buf();
-                    set_window_title("");
-                }
-                else if (curr_mode == 1)
-                {
-                    curr_mode = 0;
-                    set_window_title("");
-                }
+                // if (curr_mode == 0)
+                // {
+                //     clear_cmd_buf();
+                //     set_window_title("");
+                // }
+                // else if (curr_mode == 1)
+                // {
+                //     curr_mode = 0;
+                //     set_window_title("");
+                // }
                 break;
             case SDLK_BACKSPACE:
-                str_pop(cmd_buf);
-                set_window_title(cmd_buf);
+                // str_pop(cmd_buf);
+                // set_window_title(cmd_buf);
                 break;
             case SDLK_RETURN:
-                parse_ex(cmd_buf);
-                clear_cmd_buf();
-                set_window_title("");
+                // parse_ex(cmd_buf);
+                // clear_cmd_buf();
+                // set_window_title("");
                 break;
 
             default:
@@ -515,26 +339,9 @@ int main(int argc, char *argv[])
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
-
-                        if (!strcmp(evp->name, "time-pos"))
+                        if (strcmp(evp->name, "time-pos") == 0 && evp->format == MPV_FORMAT_DOUBLE)
                         {
-                            if (evp->format == MPV_FORMAT_DOUBLE)
-                            {
-                                double value = *(double *)(evp->data);
-                                if (value)
-                                {
-                                }
-                            }
-                        }
-                        else if (!strcmp(evp->name, "duration"))
-                        {
-                            if (evp->format == MPV_FORMAT_DOUBLE)
-                            {
-                                double value = *(double *)(evp->data);
-                                if (value)
-                                {
-                                }
-                            }
+                            curr_timestamp = *(double *)(evp->data);
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_NONE)
@@ -557,6 +364,7 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
+            // Get timestamp every frame
             mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
 
             int w, h;
