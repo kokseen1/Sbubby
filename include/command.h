@@ -13,6 +13,8 @@
 
 #define DEFAULT_COUNT_WB 1
 
+#define DEFAULT_COUNT_i 0
+
 void handle_text_input(const char *);
 
 void handle_escape();
@@ -20,3 +22,7 @@ void handle_escape();
 void handle_return();
 
 void handle_backspace();
+
+void handle_ctrl_backspace();
+
+void handle_ctrl_c();

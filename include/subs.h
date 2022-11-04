@@ -34,3 +34,7 @@ void set_focused_end_ts(double);
 void export_reload_sub();
 
 void sub_pop_char();
+
+void sub_pop_word();
+
+void focus_sub_in_frame();

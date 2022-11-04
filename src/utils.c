@@ -1,6 +1,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>
+
+static inline void *ptr_max(void *x, void *y)
+{
+    return x > y ? x : y;
+}
 
 // Pop the last char from a string
 void pop_char(char *str)
@@ -12,8 +18,26 @@ void pop_char(char *str)
     }
 }
 
+void pop_word(char *str)
+{
+    size_t len = strlen(str);
+    if (len <= 0)
+        return;
+
+    // Delete trailing spaces
+    while (isspace(str[len - 1]))
+        len--;
+    str[len] = '\0';
+
+    char *pos = ptr_max(strrchr(str, ' '), strrchr(str, '\n'));
+    if (pos)
+        *(pos + 1) = '\0';
+    else
+        str[0] = '\0';
+}
+
 // Convert timestamp from seconds to HH:MM:SS format
-void timetamp_to_str(double ts, char *ts_str)
+void timetamp_to_str(const double ts, char *ts_str)
 {
     const int h = ts / 3600;
     const int m = fmod((ts / 60), 60);

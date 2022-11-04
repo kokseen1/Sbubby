@@ -143,6 +143,11 @@ static int parse_normal_cmd(const char *cmd)
             return 0;
 
         case 'i':
+            if (count == -1)
+                count = DEFAULT_COUNT_i;
+            // Subs start from 1 to the user
+            // Convert to index starting from 0
+            focus_sub_in_frame(count - 1);
             set_mode(MODE_INSERT);
             return 0;
 
@@ -247,6 +252,7 @@ void handle_escape()
     {
     case MODE_NORMAL:
         clear_cmd_buf();
+        set_title("");
         break;
 
     case MODE_INSERT:
@@ -254,8 +260,6 @@ void handle_escape()
         set_mode(MODE_NORMAL);
         break;
     }
-
-    set_title("");
 }
 
 // Handle enter keypress
@@ -289,6 +293,35 @@ void handle_backspace()
 
     case MODE_INSERT:
         sub_pop_char();
+        break;
+    }
+}
+
+// Ctrl + Backspace / Ctrl + w equivalent
+void handle_ctrl_backspace()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        pop_word(cmd_buf);
+        set_title(cmd_buf);
+        break;
+
+    case MODE_INSERT:
+        sub_pop_word();
+        break;
+    }
+}
+void handle_ctrl_c()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        // Copy
+        break;
+
+    case MODE_INSERT:
+        set_mode(MODE_NORMAL);
         break;
     }
 }

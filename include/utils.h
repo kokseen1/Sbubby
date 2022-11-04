@@ -2,4 +2,6 @@
 
 void pop_char(char *);
 
-void timetamp_to_str(double, char *);
+void pop_word(char *);
+
+void timetamp_to_str(const double, char *);

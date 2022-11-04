@@ -96,6 +96,75 @@ static inline Sub *alloc_sub()
     return sub;
 }
 
+static inline int sub_in_frame(const Sub *sub, double timestamp)
+{
+    return sub->start_ts <= timestamp && sub->end_ts > curr_timestamp;
+}
+
+// Fill an array with subs in the given timestamp
+static int get_subs_in_frame(Sub *sub_arr[], int sz, double timestamp)
+{
+    int idx = 0;
+    Sub *curr_sub = sub_head;
+
+    while (curr_sub)
+    {
+        if (sub_in_frame(curr_sub, timestamp))
+        {
+            if (idx >= sz)
+            {
+                // Not enough space in array
+                break;
+            }
+            sub_arr[idx] = curr_sub;
+            idx++;
+        }
+        curr_sub = curr_sub->next;
+    }
+
+    // Return number of matches
+    return idx;
+}
+
+// Change focus to a specified sub in the current frame
+void focus_sub_in_frame(int idx)
+{
+    if (sub_focused == NULL)
+        return;
+
+    Sub *sub_arr[32];
+    int sz = get_subs_in_frame(sub_arr, 32, curr_timestamp);
+
+    // Handle default behaviour
+    if (idx == -1)
+    {
+        if (sub_in_frame(sub_focused, curr_timestamp))
+        {
+            // Do not change focus if focused sub is in frame
+            return;
+        }
+
+        if (sz > 0)
+        {
+            // Focus first sub by default
+            sub_focused = sub_arr[0];
+        }
+    }
+    // Specified index in range
+    else if (sz > idx)
+    {
+        // Focus specified index
+        sub_focused = sub_arr[idx];
+    }
+    // Out of range
+    else
+    {
+        return;
+    }
+
+    export_reload_sub();
+}
+
 void set_focused_start_ts(double ts)
 {
     if (sub_focused == NULL)
@@ -217,6 +286,7 @@ int focus_prev_sub(int count)
     return sub_focused == old;
 }
 
+// Helper function to export temp sub and reload
 void export_reload_sub()
 {
     export_sub(SUB_FILENAME_TMP, 1);
@@ -250,6 +320,14 @@ void sub_pop_char()
     if (sub_focused == NULL)
         return;
     pop_char(sub_focused->text);
+    export_reload_sub();
+}
+
+void sub_pop_word()
+{
+    if (sub_focused == NULL)
+        return;
+    pop_word(sub_focused->text);
     export_reload_sub();
 }
 

@@ -317,7 +317,16 @@ int main(int argc, char *argv[])
             case SDLK_ESCAPE:
                 handle_escape();
                 break;
+            case SDLK_w:
+                if (SDL_GetModState() & KMOD_CTRL)
+                    handle_ctrl_backspace();
+                break;
             case SDLK_BACKSPACE:
+                if (SDL_GetModState() & KMOD_CTRL)
+                {
+                    handle_ctrl_backspace();
+                    break;
+                }
                 handle_backspace();
                 break;
             case SDLK_RETURN:
@@ -326,9 +335,12 @@ int main(int argc, char *argv[])
             case SDLK_p:
                 // Universal pause shortcut
                 if (SDL_GetModState() & KMOD_CTRL)
-                {
                     toggle_pause();
-                }
+                break;
+            case SDLK_c:
+                if (SDL_GetModState() & KMOD_CTRL)
+                    handle_ctrl_c();
+                break;
 
             default:
                 break;
