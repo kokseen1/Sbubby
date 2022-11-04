@@ -44,167 +44,8 @@ static void insert_ordered(Sub *sub_new)
     }
 }
 
-// Internal function to allocate and prepare a sub node
-static inline Sub *alloc_sub()
-{
-    Sub *sub = (Sub *)malloc(sizeof(Sub));
-
-    // Clear text buffer
-    sub->text[0] = '\0';
-
-    return sub;
-}
-
-// Sets focused sub and reloads
-// Does not check if sub is valid
-static void set_focus(Sub *sub)
-{
-    sub_focused = sub;
-    export_sub(SUB_FILENAME_TMP, 1);
-    sub_reload();
-}
-
-void set_focused_start_ts(double ts)
-{
-    if (sub_focused == NULL)
-        return;
-    if (ts > sub_focused->end_ts)
-        return;
-    sub_focused->start_ts = ts;
-    export_sub(SUB_FILENAME_TMP, 1);
-    sub_reload();
-}
-
-void set_focused_end_ts(double ts)
-{
-    if (sub_focused == NULL)
-        return;
-    if (ts < sub_focused->start_ts)
-        return;
-    sub_focused->end_ts = ts;
-    export_sub(SUB_FILENAME_TMP, 1);
-    sub_reload();
-}
-
-void seek_focused_start()
-{
-    if (sub_focused == NULL)
-        return;
-    seek_absolute(sub_focused->start_ts);
-}
-
-void seek_focused_end()
-{
-    if (sub_focused == NULL)
-        return;
-    seek_absolute(sub_focused->end_ts);
-}
-
-void back_sub(int count)
-{
-    if (sub_focused == NULL)
-        return;
-
-    if (curr_timestamp != sub_focused->start_ts)
-    {
-        seek_absolute(sub_focused->start_ts);
-        count--;
-    }
-
-    focus_prev_sub(count);
-    seek_focused_start();
-}
-
-void focus_prev_sub(int count)
-{
-    if (sub_focused == NULL)
-        return;
-
-    for (int i = 0; i < count; i++)
-    {
-        if (sub_focused == sub_head)
-        {
-            show_text("At first sub!", 100);
-            return;
-        }
-
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (sub_curr->next == sub_focused)
-            {
-                set_focus(sub_curr);
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
-}
-
-void focus_next_sub(int count)
-{
-    if (sub_focused == NULL)
-        return;
-
-    for (int i = 0; i < count; i++)
-    {
-        if (sub_focused->next == NULL)
-        {
-            show_text("At last sub!", 100);
-            return;
-        }
-
-        set_focus(sub_focused->next);
-    }
-}
-
-double get_focused_sub_start()
-{
-    if (sub_focused == NULL)
-        return -1;
-    return sub_focused->start_ts;
-}
-
-double get_focused_sub_end()
-{
-    if (sub_focused == NULL)
-        return -1;
-    return sub_focused->end_ts;
-}
-
-// Create a new sub at timestamp
-void new_sub(const double ts)
-{
-    Sub *sub = alloc_sub();
-    sub->start_ts = ts;
-    sub->end_ts = ts + 30;
-
-    insert_ordered(sub);
-    sub_focused = sub;
-}
-
-// Function to be called when file is loaded
-void subs_init()
-{
-    // Write dummy sub for mpv to parse
-    FILE *fp = fopen(SUB_FILENAME_TMP, "w");
-    fprintf(fp, SUB_PLACEHOLDER);
-    fclose(fp);
-
-    sub_add(SUB_FILENAME_TMP);
-}
-
-// Concat text onto the currently focused sub
-void sub_insert_text(const char *text)
-{
-    strncat(sub_focused->text, text, sizeof(sub_focused->text) - strlen(sub_focused->text) - 1);
-
-    export_sub(SUB_FILENAME_TMP, 1);
-    sub_reload();
-}
-
 // Export the current subtitles to a file
-void export_sub(const char *filename, int highlight)
+static void export_sub(const char *filename, int highlight)
 {
     // List is empty or sub is reloading
     if (sub_head == NULL || sub_reload_semaphore != 0)
@@ -244,4 +85,179 @@ void export_sub(const char *filename, int highlight)
     }
 
     fclose(fp);
+}
+
+// Internal function to allocate and prepare a sub node
+static inline Sub *alloc_sub()
+{
+    Sub *sub = (Sub *)malloc(sizeof(Sub));
+    // Clear text buffer
+    sub->text[0] = '\0';
+    return sub;
+}
+
+void set_focused_start_ts(double ts)
+{
+    if (sub_focused == NULL)
+        return;
+    if (ts > sub_focused->end_ts)
+        return;
+    sub_focused->start_ts = ts;
+    export_reload_sub();
+}
+
+void set_focused_end_ts(double ts)
+{
+    if (sub_focused == NULL)
+        return;
+    if (ts < sub_focused->start_ts)
+        return;
+    sub_focused->end_ts = ts;
+    export_reload_sub();
+}
+
+static void seek_focused_start()
+{
+    if (sub_focused == NULL)
+        return;
+    seek_absolute(sub_focused->start_ts);
+}
+
+void seek_focused_end()
+{
+    if (sub_focused == NULL)
+        return;
+    // Hack: seek to a little before the end timestamp to show the sub on screen
+    seek_absolute(sub_focused->end_ts - 0.08);
+}
+
+// Shift focus to the next sub by count
+// Returns 0 if focus was changed
+int focus_next_sub(int count)
+{
+    if (sub_focused == NULL)
+        return 1;
+
+    Sub *old = sub_focused;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (sub_focused->next == NULL)
+        {
+            show_text("At last sub!", 100);
+            break;
+        }
+        sub_focused = sub_focused->next;
+    }
+
+    return sub_focused == old;
+}
+
+void next_sub(int count)
+{
+    if (focus_next_sub(count) == 0)
+    {
+        seek_focused_start();
+        export_reload_sub();
+    }
+}
+
+void back_sub(int count)
+{
+    if (sub_focused == NULL)
+        return;
+
+    if (curr_timestamp != sub_focused->start_ts)
+    {
+        count--;
+    }
+
+    int ret = focus_prev_sub(count);
+    if (ret == 0)
+        export_reload_sub();
+
+    seek_focused_start();
+
+    // // Bug: reloading sub too quickly after seeking will cause sub to disappear
+    // // Hack: re-export subs to reload after a short delay
+    if (ret == 0)
+        export_reload_sub();
+}
+
+// Shift focus to the previous sub by count
+// Returns 0 if focus was changed
+int focus_prev_sub(int count)
+{
+    if (sub_focused == NULL)
+        return 1;
+
+    Sub *old = sub_focused;
+
+    for (int i = 0; i < count; i++)
+    {
+        if (sub_focused == sub_head)
+        {
+            show_text("At first sub!", 100);
+            break;
+        }
+
+        // Inefficient
+        Sub *sub_curr = sub_head;
+        while (sub_curr)
+        {
+            if (sub_curr->next == sub_focused)
+            {
+                sub_focused = sub_curr;
+                break;
+            }
+            sub_curr = sub_curr->next;
+        }
+    }
+
+    return sub_focused == old;
+}
+
+void export_reload_sub()
+{
+    export_sub(SUB_FILENAME_TMP, 1);
+    sub_reload();
+}
+
+// Create a new sub at timestamp
+void new_sub(const double ts)
+{
+    Sub *sub = alloc_sub();
+    sub->start_ts = ts;
+    sub->end_ts = ts + 30;
+
+    insert_ordered(sub);
+    sub_focused = sub;
+}
+
+// Function to be called when file is loaded
+void subs_init()
+{
+    // Write dummy sub for mpv to parse
+    FILE *fp = fopen(SUB_FILENAME_TMP, "w");
+    fprintf(fp, SUB_PLACEHOLDER);
+    fclose(fp);
+
+    sub_add(SUB_FILENAME_TMP);
+}
+
+void sub_pop_char()
+{
+    if (sub_focused == NULL)
+        return;
+    pop_char(sub_focused->text);
+    export_reload_sub();
+}
+
+// Concat text onto the currently focused sub
+void sub_insert_text(const char *text)
+{
+    if (sub_focused == NULL)
+        return;
+    strncat(sub_focused->text, text, sizeof(sub_focused->text) - strlen(sub_focused->text) - 1);
+    export_reload_sub();
 }

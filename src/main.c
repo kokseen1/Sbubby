@@ -10,8 +10,9 @@
 #include <subs.h>
 
 // Extern globals
+
 double curr_timestamp;
-int sub_reload_semaphore;
+int sub_reload_semaphore = 0;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -113,7 +114,7 @@ static inline void set_window_icon()
 }
 
 // Function to be called when file is loaded
-static inline void file_loaded_init()
+static inline void main_init()
 {
     subs_init();
 }
@@ -190,11 +191,17 @@ void sub_add(const char *filename)
     mpv_command_async(mpv, 0, cmd);
 }
 
+// Internal function to call reload a second time
+static void sub_reload2()
+{
+    sub_reload_semaphore++;
+    const char *cmd[] = {"sub-reload", NULL};
+    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD2, cmd);
+}
+
 void sub_reload()
 {
-    // Prevent writing to file when reloading
     sub_reload_semaphore++;
-
     const char *cmd[] = {"sub-reload", NULL};
     mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
 }
@@ -339,11 +346,16 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
-                        file_loaded_init();
+                        main_init();
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
                         if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
+                        {
+                            sub_reload2();
+                            sub_reload_semaphore--;
+                        }
+                        else if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD2)
                         {
                             sub_reload_semaphore--;
                         }
@@ -355,6 +367,7 @@ int main(int argc, char *argv[])
                         {
                             // Store current timestamp globally
                             curr_timestamp = *(double *)(evp->data);
+                            // printf("%f\n", curr_timestamp);
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_NONE)

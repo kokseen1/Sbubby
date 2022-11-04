@@ -117,11 +117,11 @@ static int parse_normal_cmd(const char *cmd)
             seek_relative(count * DEFAULT_UNIT_K);
             return 0;
 
-        case 'h':
+        case 'N':
             frame_back_step();
             return 0;
 
-        case 'l':
+        case 'n':
             frame_step();
             return 0;
 
@@ -155,20 +155,7 @@ static int parse_normal_cmd(const char *cmd)
         case 'w':
             if (count == -1)
                 count = DEFAULT_COUNT_WB;
-            focus_next_sub(count);
-            seek_focused_start();
-            return 0;
-
-        case 'W':
-            if (count == -1)
-                count = DEFAULT_COUNT_WB;
-            focus_next_sub(count);
-            return 0;
-
-        case 'B':
-            if (count == -1)
-                count = DEFAULT_COUNT_WB;
-            focus_prev_sub(count);
+            next_sub(count);
             return 0;
 
         case 'b':
@@ -181,12 +168,30 @@ static int parse_normal_cmd(const char *cmd)
             seek_focused_end();
             return 0;
 
-        case 'O':
+        case 'W':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            if (focus_next_sub(count) == 0)
+                export_reload_sub();
+            return 0;
+
+        case 'B':
+            if (count == -1)
+                count = DEFAULT_COUNT_WB;
+            if (focus_prev_sub(count) == 0)
+                export_reload_sub();
+            return 0;
+
+        case 'h':
             set_focused_start_ts(curr_timestamp);
             return 0;
 
-        case 'o':
+        case 'l':
             set_focused_end_ts(curr_timestamp);
+            return 0;
+
+        case 'r':
+            sub_reload();
             return 0;
         }
     }
@@ -267,6 +272,7 @@ void handle_return()
 
     case MODE_INSERT:
         // Newline
+        sub_insert_text("\n");
         break;
     }
 }
@@ -282,6 +288,7 @@ void handle_backspace()
         break;
 
     case MODE_INSERT:
+        sub_pop_char();
         break;
     }
 }

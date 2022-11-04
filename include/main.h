@@ -4,9 +4,11 @@
 #define WINDOW_HEIGHT 360
 
 #define REPLY_USERDATA_SUB_RELOAD 8000
+#define REPLY_USERDATA_SUB_RELOAD2 8001
 
 extern double curr_timestamp;
 
+// Prevent writing to file when reloading
 extern int sub_reload_semaphore;
 
 void show_text(const char *, const int);
