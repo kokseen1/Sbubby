@@ -374,7 +374,11 @@ void sub_pop_word()
 void sub_insert_text(const char *text)
 {
     if (sub_focused == NULL)
+    {
+        show_text("No sub focused!", 100);
         return;
+    }
+
     strncat(sub_focused->text, text, sizeof(sub_focused->text) - strlen(sub_focused->text) - 1);
     export_reload_sub();
 }
