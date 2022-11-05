@@ -243,7 +243,7 @@ void back_sub(int count)
     if (sub_focused == NULL)
         return;
 
-    if (curr_timestamp != sub_focused->start_ts)
+    if (!dbl_eq(curr_timestamp, sub_focused->start_ts))
     {
         count--;
     }

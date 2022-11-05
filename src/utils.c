@@ -3,9 +3,17 @@
 #include <math.h>
 #include <ctype.h>
 
+#include <utils.h>
+
 static inline void *ptr_max(void *x, void *y)
 {
     return x > y ? x : y;
+}
+
+// Equality comparison with low precision for timestamps
+inline int dbl_eq(const double a, const double b)
+{
+    return fabs(a - b) < 0.01;
 }
 
 // Pop the last char from a string

@@ -1,5 +1,7 @@
 #pragma once
 
+int dbl_eq(const double, const double);
+
 void pop_char(char *);
 
 void pop_word(char *);
