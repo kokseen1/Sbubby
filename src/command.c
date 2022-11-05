@@ -125,6 +125,20 @@ static int parse_normal_cmd(const char *cmd)
             frame_step();
             return 0;
 
+        case 'd':
+            // Check bounds
+            if (action_len < 2)
+                return 1;
+
+            switch (action[1])
+            {
+            case 'd':
+                delete_focused_sub();
+                export_reload_sub();
+                return 0;
+            }
+            return 0;
+
         case 'g':
             // Check bounds
             if (action_len < 2)

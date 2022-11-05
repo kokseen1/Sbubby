@@ -47,9 +47,16 @@ static void insert_ordered(Sub *sub_new)
 // Export the current subtitles to a file
 static void export_sub(const char *filename, int highlight)
 {
-    // List is empty or sub is reloading
-    if (sub_head == NULL || sub_reload_semaphore != 0)
+    // Sub is reloading
+    if (sub_reload_semaphore != 0)
+        return;
+
+    if (sub_head == NULL)
     {
+        // Write dummy sub for mpv to parse
+        FILE *fp = fopen(filename, "w");
+        fprintf(fp, SUB_PLACEHOLDER);
+        fclose(fp);
         return;
     }
 
@@ -304,14 +311,46 @@ void new_sub(const double ts)
     sub_focused = sub;
 }
 
+// Delete and free currently focused sub and focus nearest sub
+void delete_focused_sub()
+{
+    if (sub_focused == NULL)
+        return;
+    if (sub_head == NULL)
+        return;
+
+    Sub *prev_sub = NULL;
+    Sub *curr_sub = sub_head;
+
+    while (curr_sub)
+    {
+        if (curr_sub == sub_focused)
+        {
+            // Target is head
+            if (prev_sub == NULL)
+            {
+                // New head
+                sub_head = curr_sub->next;
+                sub_focused = sub_head;
+                break;
+            }
+            // Target is not head
+            prev_sub->next = curr_sub->next;
+            sub_focused = prev_sub;
+            break;
+        }
+        // Iterate while tracking current and previous nodes
+        prev_sub = curr_sub;
+        curr_sub = curr_sub->next;
+    }
+
+    free(curr_sub);
+}
+
 // Function to be called when file is loaded
 void subs_init()
 {
-    // Write dummy sub for mpv to parse
-    FILE *fp = fopen(SUB_FILENAME_TMP, "w");
-    fprintf(fp, SUB_PLACEHOLDER);
-    fclose(fp);
-
+    export_sub(SUB_FILENAME_TMP, 1);
     sub_add(SUB_FILENAME_TMP);
 }
 

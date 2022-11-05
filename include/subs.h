@@ -38,3 +38,5 @@ void sub_pop_char();
 void sub_pop_word();
 
 void focus_sub_in_frame();
+
+void delete_focused_sub();
