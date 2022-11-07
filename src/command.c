@@ -96,6 +96,10 @@ static int parse_normal_cmd(const char *cmd)
         // Parse first character
         switch (action[0])
         {
+        case 'f':
+            toggle_fullscreen();
+            return 0;
+
         case 'j':
             if (count == -1)
                 count = DEFAULT_COUNT_jk;

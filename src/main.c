@@ -147,6 +147,16 @@ void set_window_title(const char *title)
     SDL_SetWindowTitle(window, title);
 }
 
+void toggle_fullscreen()
+{
+    static int isFullscreen;
+    if (isFullscreen == 0)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    else
+        SDL_SetWindowFullscreen(window, 0);
+    isFullscreen ^= 1;
+}
+
 // Playback
 
 void toggle_pause()

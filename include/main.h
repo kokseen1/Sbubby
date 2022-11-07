@@ -20,6 +20,8 @@ void show_text(const char *, const int);
 
 void set_window_title(const char *);
 
+void toggle_fullscreen();
+
 void toggle_pause();
 
 void frame_step();
