@@ -55,12 +55,15 @@ static void parse_ex(const char *cmd_raw)
 
         if (strcmp(cmd, "wq") == 0)
         {
-            printf("Save and quit\n");
+            export_sub(export_filename, 0);
             exit(0);
+        }
+        else if (strcmp(cmd, "w") == 0)
+        {
+            export_sub(export_filename, 0);
         }
         else if (strcmp(cmd, "q") == 0)
         {
-            printf("Quit\n");
             exit(0);
         }
     }

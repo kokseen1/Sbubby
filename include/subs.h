@@ -31,6 +31,10 @@ void set_focused_start_ts(double);
 
 void set_focused_end_ts(double);
 
+void import_sub(const char *);
+
+void export_sub(const char *, int);
+
 void export_reload_sub();
 
 void sub_pop_char();

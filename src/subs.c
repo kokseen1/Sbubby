@@ -5,9 +5,19 @@
 #include <subs.h>
 #include <utils.h>
 #include <main.h>
+#include <slre.h>
 
 static Sub *sub_head = NULL;
 static Sub *sub_focused = NULL;
+
+// Internal function to allocate and prepare a sub node
+static inline Sub *alloc_sub()
+{
+    Sub *sub = (Sub *)malloc(sizeof(Sub));
+    // Clear text buffer
+    sub->text[0] = '\0';
+    return sub;
+}
 
 // Internal function to insert into linked list in order
 static void insert_ordered(Sub *sub_new)
@@ -44,8 +54,91 @@ static void insert_ordered(Sub *sub_new)
     }
 }
 
+// Parse a srt file and populate the current sub linked list
+void import_sub(const char *filename)
+{
+    FILE *fp = fopen(filename, "r");
+    if (fp == NULL)
+    {
+        // File does not exist, will be created later when exporting
+        return;
+    }
+
+    char buf[256] = {0};
+    char pend_buf[256] = {0};
+
+    Sub *curr_sub = NULL;
+
+    while (fgets(buf, sizeof(buf), fp) != NULL)
+    {
+        struct slre_cap caps[2];
+
+        // Match index
+        if (slre_match("^([0-9]+)\n$", buf, strlen(buf), caps, 1) > 0)
+        {
+            if (caps[0].len > 0)
+            {
+                if (pend_buf[0] && curr_sub != NULL)
+                {
+                    strcat(curr_sub->text, pend_buf);
+                }
+                strncpy(pend_buf, caps[0].ptr, caps[0].len);
+            }
+        }
+        else if (slre_match("^([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+) --> ([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+)\n$", buf, strlen(buf), caps, 2) > 0)
+        {
+            if (caps[0].len && caps[1].len)
+            {
+                if (curr_sub)
+                {
+                    insert_ordered(curr_sub);
+                }
+
+                curr_sub = alloc_sub();
+
+                char start[256] = {0};
+                char end[256] = {0};
+
+                strncpy(start, caps[0].ptr, caps[0].len);
+                strncpy(end, caps[1].ptr, caps[1].len);
+
+                curr_sub->start_ts = str_to_timestamp(start);
+                curr_sub->end_ts = str_to_timestamp(end);
+
+                if (pend_buf[0])
+                    pend_buf[0] = 0;
+            }
+        }
+        else if (slre_match("^([^\n].+)", buf, strlen(buf), caps, 1) > 0)
+        {
+            if (pend_buf[0])
+            {
+                if (curr_sub != NULL)
+                {
+                    strcat(curr_sub->text, pend_buf);
+                }
+                pend_buf[0] = 0;
+            }
+
+            if (curr_sub != NULL && caps[0].len > 0)
+            {
+                strncat(curr_sub->text, caps[0].ptr, caps[0].len);
+            }
+        }
+    }
+
+    if (curr_sub)
+    {
+        insert_ordered(curr_sub);
+    }
+
+    // Set focus to the first sub
+    sub_focused = sub_head;
+
+    fclose(fp);
+}
 // Export the current subtitles to a file
-static void export_sub(const char *filename, int highlight)
+void export_sub(const char *filename, int highlight)
 {
     // Sub is reloading
     if (sub_reload_semaphore != 0)
@@ -92,15 +185,6 @@ static void export_sub(const char *filename, int highlight)
     }
 
     fclose(fp);
-}
-
-// Internal function to allocate and prepare a sub node
-static inline Sub *alloc_sub()
-{
-    Sub *sub = (Sub *)malloc(sizeof(Sub));
-    // Clear text buffer
-    sub->text[0] = '\0';
-    return sub;
 }
 
 static inline int sub_in_frame(const Sub *sub, double timestamp)
@@ -347,7 +431,7 @@ void delete_focused_sub()
     free(curr_sub);
 }
 
-// Function to be called when file is loaded
+// Initialize and load temp sub for displaying
 void subs_init()
 {
     export_sub(SUB_FILENAME_TMP, 1);

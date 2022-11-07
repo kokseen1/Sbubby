@@ -13,6 +13,7 @@
 
 double curr_timestamp;
 int sub_reload_semaphore = 0;
+char *export_filename = NULL;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -116,6 +117,18 @@ static inline void set_window_icon()
 // Function to be called when file is loaded
 static inline void main_init()
 {
+    if (export_filename != NULL)
+    {
+        // Attempt to import specified sub for editing
+        import_sub(export_filename);
+    }
+    else
+    {
+        // Fetch the current video filename and set it as the default export filename
+        export_filename = (char *)malloc(256 * sizeof(char));
+        mpv_get_property_async(mpv, REPLY_USERDATA_UPDATE_FILENAME, "filename", MPV_FORMAT_STRING);
+    }
+
     subs_init();
 }
 
@@ -210,6 +223,8 @@ int main(int argc, char *argv[])
 {
     if (argc < 2)
         die("Usage: sbubby video.mp4 [sub.srt]");
+    if (argc > 2)
+        export_filename = argv[2];
 
     const char *video_fname = argv[1];
 
@@ -381,11 +396,14 @@ int main(int argc, char *argv[])
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
-                        if (strcmp(evp->name, "time-pos") == 0 && evp->format == MPV_FORMAT_DOUBLE)
+
+                        if (mp_event->reply_userdata == REPLY_USERDATA_UPDATE_TIMESTAMP)
                         {
-                            // Store current timestamp globally
                             curr_timestamp = *(double *)(evp->data);
-                            // printf("%f\n", curr_timestamp);
+                        }
+                        else if (mp_event->reply_userdata == REPLY_USERDATA_UPDATE_FILENAME)
+                        {
+                            snprintf(export_filename, 256, "%s.srt", *(char **)(evp->data));
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_NONE)
@@ -409,7 +427,7 @@ int main(int argc, char *argv[])
         if (redraw)
         {
             // Get timestamp every frame
-            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
+            mpv_get_property_async(mpv, REPLY_USERDATA_UPDATE_TIMESTAMP, "time-pos", MPV_FORMAT_DOUBLE);
 
             int w, h;
             SDL_GetWindowSize(window, &w, &h);
