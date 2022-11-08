@@ -36,10 +36,20 @@ static void set_title(const char *text)
 static void set_mode(int mode)
 {
     curr_mode = mode;
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        // Exit insert mode
+        unset_cursor();
+        export_reload_sub();
+        break;
+    case MODE_INSERT:
+        break;
+    }
     set_title("");
 }
 
-static void clear_cmd_buf()
+static inline void clear_cmd_buf()
 {
     cmd_buf[0] = 0;
 }
@@ -169,12 +179,16 @@ static int parse_normal_cmd(const char *cmd)
             // Subs start from 1 to the user
             // Convert to index starting from 0
             focus_sub_in_frame(count - 1);
+            set_cursor_end();
+            export_reload_sub();
             set_mode(MODE_INSERT);
             return 0;
 
         case 'a':
             // New sub at current time
             new_sub(curr_timestamp);
+            set_cursor_end();
+            export_reload_sub();
             set_mode(MODE_INSERT);
             return 0;
 
@@ -277,7 +291,6 @@ void handle_escape()
         break;
 
     case MODE_INSERT:
-        // Exit insert mode
         set_mode(MODE_NORMAL);
         break;
     }
@@ -343,6 +356,30 @@ void handle_ctrl_c()
 
     case MODE_INSERT:
         set_mode(MODE_NORMAL);
+        break;
+    }
+}
+
+void handle_left()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+    case MODE_INSERT:
+        cursor_left();
+        break;
+    }
+}
+
+void handle_right()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+    case MODE_INSERT:
+        cursor_right();
         break;
     }
 }

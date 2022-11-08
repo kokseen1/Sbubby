@@ -285,6 +285,20 @@ int main(int argc, char *argv[])
             case SDLK_RETURN:
                 handle_return();
                 break;
+            case SDLK_LEFT:
+                handle_left();
+                break;
+            case SDLK_RIGHT:
+                handle_right();
+                break;
+            case SDLK_HOME:
+                set_cursor_start();
+                export_reload_sub();
+                break;
+            case SDLK_END:
+                set_cursor_end();
+                export_reload_sub();
+                break;
             case SDLK_p:
                 // Universal pause shortcut
                 if (SDL_GetModState() & KMOD_CTRL)

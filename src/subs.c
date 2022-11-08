@@ -9,6 +9,7 @@
 
 static Sub *sub_head = NULL;
 static Sub *sub_focused = NULL;
+static int cursor_pos = -1;
 
 // Internal function to allocate and prepare a sub node
 static inline Sub *alloc_sub()
@@ -170,10 +171,17 @@ void export_sub(const char *filename, int highlight)
         fprintf(fp, "%d\n", idx);
         fprintf(fp, "%s --> %s\n", start_ts_str, end_ts_str);
 
-        // Highlight focused sub when editing
         if (highlight && sub_curr == sub_focused)
         {
-            fprintf(fp, "<font color=lightgreen>%s</font>\n\n", sub_curr->text);
+            if (cursor_pos != -1)
+            {
+                // Insert cursor
+                fprintf(fp, "<font color=lightgreen>%.*s|%s</font>\n\n", cursor_pos, sub_curr->text, &sub_curr->text[cursor_pos]);
+            }
+            else
+            { // Highlight focused sub when editing
+                fprintf(fp, "<font color=lightgreen>%s</font>\n\n", sub_curr->text);
+            }
         }
         else
         {
@@ -217,6 +225,13 @@ static int get_subs_in_frame(Sub *sub_arr[], int sz, double timestamp)
     return idx;
 }
 
+int focused_in_frame()
+{
+    if (sub_focused == NULL)
+        return 0;
+    return sub_in_frame(sub_focused, curr_timestamp);
+}
+
 // Change focus to a specified sub in the current frame
 void focus_sub_in_frame(int idx)
 {
@@ -252,8 +267,6 @@ void focus_sub_in_frame(int idx)
     {
         return;
     }
-
-    export_reload_sub();
 }
 
 void set_focused_start_ts(double ts)
@@ -442,16 +455,27 @@ void sub_pop_char()
 {
     if (sub_focused == NULL)
         return;
-    pop_char(sub_focused->text);
-    export_reload_sub();
+
+    if (pop_char_at_pos(sub_focused->text, cursor_pos) == 0)
+    {
+        cursor_pos--;
+        export_reload_sub();
+    }
 }
 
 void sub_pop_word()
 {
     if (sub_focused == NULL)
         return;
+    int sz = strlen(sub_focused->text);
     pop_word(sub_focused->text);
-    export_reload_sub();
+    sz -= strlen(sub_focused->text);
+    if (sz > 0)
+    {
+        printf("popped %d\n", sz);
+        cursor_pos -= sz;
+        export_reload_sub();
+    }
 }
 
 // Concat text onto the currently focused sub
@@ -463,6 +487,50 @@ void sub_insert_text(const char *text)
         return;
     }
 
-    strncat(sub_focused->text, text, sizeof(sub_focused->text) - strlen(sub_focused->text) - 1);
+    // Insert text at cursor position
+    char tmp[sizeof(sub_focused->text)];
+    sprintf(tmp, "%.*s%s%s", cursor_pos, sub_focused->text, text, &sub_focused->text[cursor_pos]);
+    strncpy(sub_focused->text, tmp, sizeof(sub_focused->text));
+
+    // Shift cursor position with text
+    cursor_pos += strlen(text);
     export_reload_sub();
+
+    printf("pos: %d\n", cursor_pos);
+}
+
+void cursor_left()
+{
+    if (cursor_pos == 0)
+        return;
+    cursor_pos--;
+    export_reload_sub();
+}
+
+void cursor_right()
+{
+    if (sub_focused == NULL)
+        return;
+    if (cursor_pos == strlen(sub_focused->text))
+        return;
+
+    cursor_pos++;
+    export_reload_sub();
+}
+
+void unset_cursor()
+{
+    cursor_pos = -1;
+}
+
+void set_cursor_start()
+{
+    cursor_pos = 0;
+}
+
+void set_cursor_end()
+{
+    if (sub_focused == NULL)
+        return;
+    cursor_pos = strlen(sub_focused->text);
 }

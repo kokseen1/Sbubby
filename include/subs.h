@@ -41,6 +41,18 @@ void sub_pop_char();
 
 void sub_pop_word();
 
+int focused_in_frame();
+
 void focus_sub_in_frame();
 
 void delete_focused_sub();
+
+void cursor_left();
+
+void cursor_right();
+
+void unset_cursor();
+
+void set_cursor_start();
+
+void set_cursor_end();

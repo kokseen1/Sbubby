@@ -91,14 +91,27 @@ inline int dbl_eq(const double a, const double b)
     return fabs(a - b) < 0.01;
 }
 
-// Pop the last char from a string
-void pop_char(char *str)
+// Return 0 on success
+int pop_char_at_idx(char *str, int idx)
 {
     size_t len = strlen(str);
-    if (len > 0)
-    {
-        str[len - 1] = '\0';
-    }
+    if (idx >= len || idx < 0)
+        return 1;
+
+    memmove(&str[idx], &str[idx + 1], strlen(str) - idx);
+    return 0;
+}
+
+// Pop the last char from a string
+// Return 0 on success
+int pop_char(char *str)
+{
+    size_t len = strlen(str);
+    if (len <= 0)
+        return 1;
+
+    str[len - 1] = '\0';
+    return 0;
 }
 
 void pop_word(char *str)

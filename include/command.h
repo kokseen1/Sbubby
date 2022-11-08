@@ -26,3 +26,7 @@ void handle_backspace();
 void handle_ctrl_backspace();
 
 void handle_ctrl_c();
+
+void handle_right();
+
+void handle_left();

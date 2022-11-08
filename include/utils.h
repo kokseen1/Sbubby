@@ -6,7 +6,11 @@ void set_window_icon(SDL_Window *);
 
 int dbl_eq(const double, const double);
 
-void pop_char(char *);
+int pop_char_at_pos(char *, int);
+
+int pop_word_at_pos(char *, int);
+
+int pop_char(char *);
 
 void pop_word(char *);
 
