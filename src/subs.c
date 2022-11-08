@@ -451,12 +451,13 @@ void subs_init()
     sub_add(SUB_FILENAME_TMP);
 }
 
+// Pop the char before the cursor
 void sub_pop_char()
 {
     if (sub_focused == NULL)
         return;
 
-    if (pop_char_at_pos(sub_focused->text, cursor_pos) == 0)
+    if (pop_char_at_idx(sub_focused->text, cursor_pos - 1) == 0)
     {
         cursor_pos--;
         export_reload_sub();

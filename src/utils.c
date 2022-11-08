@@ -95,12 +95,19 @@ inline int dbl_eq(const double a, const double b)
 int pop_char_at_idx(char *str, int idx)
 {
     size_t len = strlen(str);
+
+    // Out of range
     if (idx >= len || idx < 0)
         return 1;
 
+    // Ovelap the string at idx with the rest of the string starting from idx+1
     memmove(&str[idx], &str[idx + 1], strlen(str) - idx);
     return 0;
 }
+
+// int pop_word_at_idx(char * str, int idx)
+// {
+// }
 
 // Pop the last char from a string
 // Return 0 on success
