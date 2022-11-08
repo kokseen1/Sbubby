@@ -105,9 +105,31 @@ int pop_char_at_idx(char *str, int idx)
     return 0;
 }
 
-// int pop_word_at_idx(char * str, int idx)
-// {
-// }
+// Returns pointer to end of previous word relative to starting index
+// Similar to Ctrl + LEFT
+char *get_prev_word(char *str, int idx)
+{
+    // Skip trailing spaces
+    while (idx >= 0 && isspace(str[idx]))
+        idx--;
+
+    // Find previous whitespace if any
+    while (idx >= 0 && str[idx] != ' ' && str[idx] != '\n')
+        idx--;
+
+    return &str[idx + 1];
+}
+
+// Pop characters from a string starting from pointer
+// Return 0 on success
+int pop_range(char *start, size_t sz)
+{
+    size_t len = strlen(start);
+    if (sz <= 0 || sz > len)
+        return 1;
+    memmove(start, start + sz, len - sz + 1);
+    return 0;
+}
 
 // Pop the last char from a string
 // Return 0 on success
@@ -126,17 +148,7 @@ void pop_word(char *str)
     size_t len = strlen(str);
     if (len <= 0)
         return;
-
-    // Delete trailing spaces
-    while (isspace(str[len - 1]))
-        len--;
-    str[len] = '\0';
-
-    char *pos = ptr_max(strrchr(str, ' '), strrchr(str, '\n'));
-    if (pos)
-        *(pos + 1) = '\0';
-    else
-        str[0] = '\0';
+    *get_prev_word(str, len - 1) = '\0';
 }
 
 // Convert a HH:MM:SS string to a timestamp in seconds

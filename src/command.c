@@ -184,6 +184,17 @@ static int parse_normal_cmd(const char *cmd)
             set_mode(MODE_INSERT);
             return 0;
 
+        case 'I':
+            if (count == -1)
+                count = DEFAULT_COUNT_i;
+            // Subs start from 1 to the user
+            // Convert to index starting from 0
+            focus_sub_in_frame(count - 1);
+            set_cursor_start();
+            export_reload_sub();
+            set_mode(MODE_INSERT);
+            return 0;
+
         case 'a':
             // New sub at current time
             new_sub(curr_timestamp);
@@ -315,6 +326,19 @@ void handle_return()
     }
 }
 
+void handle_delete()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+
+    case MODE_INSERT:
+        sub_delete_char();
+        break;
+    }
+}
+
 // Handle backspace keypress
 void handle_backspace()
 {
@@ -326,7 +350,20 @@ void handle_backspace()
         break;
 
     case MODE_INSERT:
-        sub_pop_char();
+        sub_backspace_char();
+        break;
+    }
+}
+
+void handle_ctrl_delete()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+
+    case MODE_INSERT:
+        sub_delete_word();
         break;
     }
 }
@@ -342,10 +379,11 @@ void handle_ctrl_backspace()
         break;
 
     case MODE_INSERT:
-        sub_pop_word();
+        sub_backspace_word();
         break;
     }
 }
+
 void handle_ctrl_c()
 {
     switch (curr_mode)
@@ -356,6 +394,30 @@ void handle_ctrl_c()
 
     case MODE_INSERT:
         set_mode(MODE_NORMAL);
+        break;
+    }
+}
+
+void handle_ctrl_left()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+    case MODE_INSERT:
+        cursor_prev_word();
+        break;
+    }
+}
+
+void handle_ctrl_right()
+{
+    switch (curr_mode)
+    {
+    case MODE_NORMAL:
+        break;
+    case MODE_INSERT:
+        cursor_next_word();
         break;
     }
 }

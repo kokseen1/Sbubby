@@ -282,13 +282,31 @@ int main(int argc, char *argv[])
                 }
                 handle_backspace();
                 break;
+            case SDLK_DELETE:
+                if (SDL_GetModState() & KMOD_CTRL)
+                {
+                    handle_ctrl_delete();
+                    break;
+                }
+                handle_delete();
+                break;
             case SDLK_RETURN:
                 handle_return();
                 break;
             case SDLK_LEFT:
+                if (SDL_GetModState() & KMOD_CTRL)
+                {
+                    handle_ctrl_left();
+                    break;
+                }
                 handle_left();
                 break;
             case SDLK_RIGHT:
+                if (SDL_GetModState() & KMOD_CTRL)
+                {
+                    handle_ctrl_right();
+                    break;
+                }
                 handle_right();
                 break;
             case SDLK_HOME:

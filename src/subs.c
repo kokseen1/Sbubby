@@ -176,7 +176,7 @@ void export_sub(const char *filename, int highlight)
             if (cursor_pos != -1)
             {
                 // Insert cursor
-                fprintf(fp, "<font color=lightgreen>%.*s|%s</font>\n\n", cursor_pos, sub_curr->text, &sub_curr->text[cursor_pos]);
+                fprintf(fp, "<font color=lightgreen>%.*s<font color=yellow>|</font>%s</font>\n\n", cursor_pos, sub_curr->text, &sub_curr->text[cursor_pos]);
             }
             else
             { // Highlight focused sub when editing
@@ -451,8 +451,21 @@ void subs_init()
     sub_add(SUB_FILENAME_TMP);
 }
 
+// Pop the char after the cursor
+void sub_delete_char()
+{
+    if (sub_focused == NULL)
+        return;
+
+    if (pop_char_at_idx(sub_focused->text, cursor_pos) == 0)
+    {
+        // Cursor position does not move
+        export_reload_sub();
+    }
+}
+
 // Pop the char before the cursor
-void sub_pop_char()
+void sub_backspace_char()
 {
     if (sub_focused == NULL)
         return;
@@ -464,16 +477,21 @@ void sub_pop_char()
     }
 }
 
-void sub_pop_word()
+void sub_delete_word()
 {
     if (sub_focused == NULL)
         return;
-    int sz = strlen(sub_focused->text);
-    pop_word(sub_focused->text);
-    sz -= strlen(sub_focused->text);
-    if (sz > 0)
+}
+
+void sub_backspace_word()
+{
+    if (sub_focused == NULL)
+        return;
+
+    char *start = get_prev_word(sub_focused->text, cursor_pos - 1);
+    size_t sz = cursor_pos - (start - sub_focused->text);
+    if (pop_range(start, sz) == 0)
     {
-        printf("popped %d\n", sz);
         cursor_pos -= sz;
         export_reload_sub();
     }
@@ -488,16 +506,44 @@ void sub_insert_text(const char *text)
         return;
     }
 
+    size_t len_text = strlen(text);
+    size_t len_sub = strlen(sub_focused->text);
+
+    // Not enough space
+    if (len_text + len_sub >= sizeof(sub_focused->text))
+        return;
+
+    // Bytes to copy, including null terminator
+    size_t sz = len_sub - cursor_pos + 1;
+
+    // Shift current string at cursor position strlen(text) characters forward
+    memmove(sub_focused->text + cursor_pos + len_text, sub_focused->text + cursor_pos, sz);
+
     // Insert text at cursor position
-    char tmp[sizeof(sub_focused->text)];
-    sprintf(tmp, "%.*s%s%s", cursor_pos, sub_focused->text, text, &sub_focused->text[cursor_pos]);
-    strncpy(sub_focused->text, tmp, sizeof(sub_focused->text));
+    strncpy(sub_focused->text + cursor_pos, text, len_text);
+
+    // char tmp[sizeof(sub_focused->text)];
+    // sprintf(tmp, "%.*s%s%s", cursor_pos, sub_focused->text, text, &sub_focused->text[cursor_pos]);
+    // strncpy(sub_focused->text, tmp, sizeof(sub_focused->text));
 
     // Shift cursor position with text
-    cursor_pos += strlen(text);
+    cursor_pos += len_text;
     export_reload_sub();
+}
 
-    printf("pos: %d\n", cursor_pos);
+void cursor_prev_word()
+{
+    if (sub_focused == NULL)
+        return;
+    if (cursor_pos == 0)
+        return;
+    char *start = get_prev_word(sub_focused->text, cursor_pos - 1);
+    cursor_pos = start - sub_focused->text;
+    export_reload_sub();
+}
+
+void cursor_next_word()
+{
 }
 
 void cursor_left()

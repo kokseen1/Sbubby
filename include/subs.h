@@ -37,15 +37,23 @@ void export_sub(const char *, int);
 
 void export_reload_sub();
 
-void sub_pop_char();
+void sub_delete_char();
 
-void sub_pop_word();
+void sub_backspace_char();
+
+void sub_delete_word();
+
+void sub_backspace_word();
 
 int focused_in_frame();
 
 void focus_sub_in_frame();
 
 void delete_focused_sub();
+
+void cursor_prev_word();
+
+void cursor_next_word();
 
 void cursor_left();
 

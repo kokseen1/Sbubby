@@ -21,12 +21,20 @@ void handle_escape();
 
 void handle_return();
 
+void handle_delete();
+
 void handle_backspace();
+
+void handle_ctrl_delete();
 
 void handle_ctrl_backspace();
 
 void handle_ctrl_c();
 
+void handle_ctrl_right();
+
 void handle_right();
+
+void handle_ctrl_left();
 
 void handle_left();

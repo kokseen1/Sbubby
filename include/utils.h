@@ -8,7 +8,9 @@ int dbl_eq(const double, const double);
 
 int pop_char_at_idx(char *, int);
 
-int pop_word_at_idx(char *, int);
+char *get_prev_word(char *, int);
+
+int pop_range(char *, size_t);
 
 int pop_char(char *);
 
