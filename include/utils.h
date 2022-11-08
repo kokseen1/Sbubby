@@ -1,5 +1,9 @@
 #pragma once
 
+#include <SDL2/SDL.h>
+
+void set_window_icon(SDL_Window *);
+
 int dbl_eq(const double, const double);
 
 void pop_char(char *);
