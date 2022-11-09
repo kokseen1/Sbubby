@@ -274,7 +274,10 @@ void set_focused_start_ts(double ts)
     if (sub_focused == NULL)
         return;
     if (ts > sub_focused->end_ts)
+    {
+        show_text("Start cannot be after end!", 300);
         return;
+    }
     sub_focused->start_ts = ts;
     export_reload_sub();
 }
@@ -284,7 +287,10 @@ void set_focused_end_ts(double ts)
     if (sub_focused == NULL)
         return;
     if (ts < sub_focused->start_ts)
+    {
+        show_text("End cannot be before start!", 300);
         return;
+    }
     sub_focused->end_ts = ts;
     export_reload_sub();
 }
