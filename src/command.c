@@ -384,12 +384,14 @@ void handle_ctrl_backspace()
     }
 }
 
+// Same behaviour as escape
 void handle_ctrl_c()
 {
     switch (curr_mode)
     {
     case MODE_NORMAL:
-        // Copy
+        clear_cmd_buf();
+        set_title("");
         break;
 
     case MODE_INSERT:
