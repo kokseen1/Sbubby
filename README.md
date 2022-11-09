@@ -32,21 +32,25 @@ Like Vim, Sbubby contains 2 main modes when interacting with the program: NORMAL
 
 `SPACE` - Toggle play/pause
 
-`ESC` - Clear command buffer
+`ESC`/`Ctrl c` - Clear command buffer
 
-#### Basic movement
-
-`j` - Seek backward
-
-`J` - Seek backward (small)
+#### Movement
 
 `k` - Seek forward
 
+`j` - Seek backward
+
 `K` - Seek forward (small)
 
-`w` - Seek to next sub
+`J` - Seek backward (small)
 
-`b` - Seek to previous sub
+`n` - Frame step forward
+
+`N` - Frame step backward
+
+`gg` - Seek to start
+
+`G` - Seek to end
 
 ##### With quantifiers:
 
@@ -60,79 +64,71 @@ Like Vim, Sbubby contains 2 main modes when interacting with the program: NORMAL
 
 `i` - Enter INSERT mode
 
+`I` - Enter INSERT mode at start of text
+
+`w` - Seek to next sub
+
+`b` - Seek to start of sub / Seek to previous sub
+
 `h` - Set start of sub at current time
 
 `l` - Set end of sub at current time
 
-`o` - Seek to start of sub
-
-`O` - Seek to end of sub
-
-`dd` - Delete sub
-
-##### With quantifiers:
-
-`2o` - Seek to 2s before start of sub
-
-`2O` - Seek to 2s before end of sub
-
-`2i` - Enter INSERT mode on sub `#2`
-
-### INSERT Mode
-
-`Ctrl` + `w`/`BACKSPACE` - Delete last word
-
-`ESC` - Exit INSERT mode
-
-### Ex mode
-
-Enter Ex mode by entering `:` in NORMAL mode. Press the enter key to execute commands in Ex mode.
-
-`:{pos}` - Seek to `pos` seconds of the video; `:100` seeks to `00:01:40.000`, etc.
-
-`:w` - Save the current subtitle as `<video.mp4>.srt`
-
-`:q` - Quit without saving
-
-`:wq` - Save the current subtitle and quit
-
-### Additional controls
-
-#### Movement
-
-`s` - Frame step forward
-
-`S` - Frame step backward
-
-`gg` - Seek to start
+`e` - Seek to end of sub
 
 `W` - Switch focus to next sub without seeking
 
 `B` - Switch focus to previous sub without seeking
 
-#### Subtitling
-
-`Hj` - Shift start of sub 0.1s backward
-
-`Hk` - Shift start of sub 0.1s forward
-
-`Lj` - Shift end of sub 0.1s backward
-
-`Lk` - Shift end of sub 0.1s forward
+`dd` - Delete sub
 
 ##### With quantifiers:
 
-`3Hj` - Shift start of sub 0.3s backward
+`2i` - Enter INSERT mode on sub `#2`
 
-`2Lk` - Shift end of sub 0.2s forward
+`3w` - Seek `3` subs forward
+
+### INSERT Mode
+
+`Ctrl p` - Toggle play/pause
+
+`LEFT`/`RIGHT` - Move cursor between characters
+
+`Ctrl LEFT`/`Ctrl RIGHT` - Move cursor between words
+
+`HOME` - Move cursor to start
+
+`END` - Move cursor to end
+
+`Ctrl w`/`Ctrl Backspace` - Delete word before cursor
+
+`Ctrl Delete` - Delete word after cursor
+
+`ESC`/`Ctrl c` - Exit INSERT mode
+
+### Ex mode
+
+Enter Ex mode by entering `:` in NORMAL mode. Press `ENTER` to execute commands in Ex mode.
+
+`:w` - Save current subtitles as `<video.mp4>.srt`
+
+`:q` - Quit without saving
+
+`:wq` - Save current subtitles and quit
+
+`ESC`/`Ctrl c` - Clear command buffer
 
 ## Building from source
 
 ### Prerequisites
 
 - MinGW-w64
+  - SDL2-devel
+  - libmpv
 - Make
-- DLL search path contains binaries found in `external/bin`
+- DLL search path contains:
+  - `libmpv-2.dll`
+  - `SDL2.dll`
 
 ### Steps
 
@@ -145,6 +141,7 @@ git clone https://github.com/kokseen1/Sbubby
 2. Build
 
 ```
+cd Sbubby
 make
 make clean
 ```
@@ -152,5 +149,5 @@ make clean
 3. Run
 
 ```
-sbubby.exe
+.\build\sbubby.exe <video.mp4>
 ```
