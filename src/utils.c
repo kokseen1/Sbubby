@@ -105,6 +105,23 @@ int pop_char_at_idx(char *str, int idx)
     return 0;
 }
 
+// Returns pointer to start of next word relative to starting index
+// Similar to Ctrl + RIGHT
+char *get_next_word(char *str, int idx)
+{
+    size_t len = strlen(str);
+
+    // Skip leading chars
+    while (idx < len && !isspace(str[idx]))
+        idx++;
+
+    // Skip leading spaces
+    while (idx < len && isspace(str[idx]))
+        idx++;
+
+    return &str[idx];
+}
+
 // Returns pointer to end of previous word relative to starting index
 // Similar to Ctrl + LEFT
 char *get_prev_word(char *str, int idx)
@@ -114,7 +131,7 @@ char *get_prev_word(char *str, int idx)
         idx--;
 
     // Find previous whitespace if any
-    while (idx >= 0 && str[idx] != ' ' && str[idx] != '\n')
+    while (idx >= 0 && !isspace(str[idx]))
         idx--;
 
     return &str[idx + 1];

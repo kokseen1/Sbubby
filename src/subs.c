@@ -481,6 +481,14 @@ void sub_delete_word()
 {
     if (sub_focused == NULL)
         return;
+
+    char *end = get_next_word(sub_focused->text, cursor_pos);
+    size_t sz = end - sub_focused->text - cursor_pos;
+    if (pop_range(sub_focused->text + cursor_pos, sz) == 0)
+    {
+        // Cursor position does not change
+        export_reload_sub();
+    }
 }
 
 void sub_backspace_word()
@@ -544,6 +552,13 @@ void cursor_prev_word()
 
 void cursor_next_word()
 {
+    if (sub_focused == NULL)
+        return;
+    if (cursor_pos == strlen(sub_focused->text))
+        return;
+    char *end = get_next_word(sub_focused->text, cursor_pos);
+    cursor_pos = end - sub_focused->text;
+    export_reload_sub();
 }
 
 void cursor_left()
