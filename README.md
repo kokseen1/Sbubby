@@ -34,6 +34,8 @@ Like Vim, Sbubby contains 2 main modes when interacting with the program: NORMAL
 
 `ESC`/`Ctrl c` - Clear command buffer
 
+`f` - Toggle fullscreen
+
 #### Movement
 
 `k` - Seek forward
@@ -79,6 +81,8 @@ Like Vim, Sbubby contains 2 main modes when interacting with the program: NORMAL
 `W` - Switch focus to next sub without seeking
 
 `B` - Switch focus to previous sub without seeking
+
+`r` - Manually reload subtitles
 
 `dd` - Delete sub
 
