@@ -1,52 +1,19 @@
-#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-
-#include <ctype.h>
-#include <math.h>
-
-#include <slre.h>
 
 #include <SDL2/SDL.h>
-
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 
-#define STR_IMPL_(x) #x
-#define STR(x) STR_IMPL_(x)
+#include <main.h>
+#include <command.h>
+#include <utils.h>
+#include <subs.h>
 
-#define STEP_SMALL 0.1
-#define STEP_MEDIUM 1
-#define STEP_DEFAULT 3
-#define REPLY_USERDATA_SUB_RELOAD 8000
+// Extern globals
 
-#define CMD_BUF_MAX 1024
-#define SMALL_BUF_MAX 32
-#define DEFAULT_SUB_FNAME "tmp.srt"
-#define SUB_PLACEHOLDER "1\n00:00:00,000 --> 00:00:00,000\n\n\n"
-#define COLOR_SUB_FOCUSED "lightgreen"
-
-typedef struct Sub
-{
-    double start_d;
-    double end_d;
-    char text[CMD_BUF_MAX];
-    struct Sub *next;
-} Sub;
-
-static double duration_d;
-static double ts_s_d;
-
-static char cmd_buf[CMD_BUF_MAX];
-
-static int mtx_reload = 0;
-static int insert_mode = 0;
-
-static char *video_fname = NULL;
-static char *sub_fname = NULL;
-static Sub *sub_head = NULL;
-static Sub *sub_focused = NULL;
+double curr_timestamp;
+int sub_reload_semaphore = 0;
+char *export_filename = NULL;
 
 static Uint32 wakeup_on_mpv_render_update, wakeup_on_mpv_events;
 static SDL_Window *window = NULL;
@@ -75,862 +42,129 @@ static void on_mpv_render_update(void *ctx)
     SDL_PushEvent(&event);
 }
 
-static char *ptr_max(char *ptr1, char *ptr2)
+// Function to be called when file is loaded
+static inline void main_init()
 {
-    return ptr1 > ptr2 ? ptr1 : ptr2;
-}
-
-static int in_frame(Sub *sub)
-{
-    return sub->start_d <= ts_s_d && ts_s_d < sub->end_d;
-}
-
-static void insert_ordered(Sub *sub_new)
-{
-    if (!sub_head)
+    if (export_filename != NULL)
     {
-        // First item
-        sub_head = sub_new;
-        sub_head->next = NULL;
-    }
-    else if (sub_new->start_d < sub_head->start_d)
-    {
-        // Insert at beginning (new head)
-        sub_new->next = sub_head;
-        sub_head = sub_new;
+        // Attempt to import specified sub for editing
+        import_sub(export_filename);
     }
     else
     {
-        // Ordered insert
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (!sub_curr->next || sub_curr->next->start_d > sub_new->start_d)
-            {
-                sub_new->next = sub_curr->next;
-                sub_curr->next = sub_new;
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
+        // Fetch the current video filename and set it as the default export filename
+        export_filename = (char *)malloc(256 * sizeof(char));
+        mpv_get_property_async(mpv, REPLY_USERDATA_UPDATE_FILENAME, "filename", MPV_FORMAT_STRING);
     }
+
+    subs_init();
 }
 
-static void show_text(char *text, char *duration)
+// External functions are defined below
+
+void show_text(const char *text, const int duration)
 {
-    const char *cmd[] = {"show-text", text, duration, NULL};
+    char duration_str[32];
+    snprintf(duration_str, 32, "%d", duration);
+    const char *cmd[] = {"show-text", text, duration_str, NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 
-static void toggle_pause()
+void set_window_title(const char *title)
 {
-    const char *cmd_pause[] = {"cycle", "pause", NULL};
-    mpv_command_async(mpv, 0, cmd_pause);
-}
-/**
- * Warning: target cannot accept commas! e.g. 00:00:01,000
- */
-static void exact_seek(char *target, char *flag)
-{
-    const char *cmd_seek[] = {"seek", target, flag, "exact", NULL};
-    mpv_command_async(mpv, 0, cmd_seek);
-}
-
-static void exact_seek_d(double value, char *flag)
-{
-    char target[SMALL_BUF_MAX];
-    snprintf(target, sizeof(target), "%f", value);
-    exact_seek(target, flag);
-}
-
-static double hhmmss_to_d(char *buf)
-{
-    double d = 0.0;
-    struct slre_cap caps[3];
-
-    if (slre_match("^([0-9]+):([0-9]+):([0-9]+[,|\\.][0-9]+)$", buf, strlen(buf), caps, 3) > 0)
-    {
-        if (caps[0].len && caps[1].len && caps[2].len)
-        {
-            char hh[SMALL_BUF_MAX] = {0};
-            char mm[SMALL_BUF_MAX] = {0};
-            char ss_ms[SMALL_BUF_MAX] = {0};
-
-            strncpy(hh, caps[0].ptr, caps[0].len);
-            strncpy(mm, caps[1].ptr, caps[1].len);
-            strncpy(ss_ms, caps[2].ptr, caps[2].len);
-
-            char *pos = strchr(ss_ms, ',');
-            if (pos)
-                *pos = '.';
-
-            d = strtol(hh, NULL, 10) * 3600 + strtol(mm, NULL, 10) * 60 + strtod(ss_ms, NULL);
-        }
-    }
-    else
-    {
-        printf("Invalid hhmmss format!\n");
-    }
-
-    return d;
-}
-
-static void d_to_hhmmss(double ts_d, char *ts_hhmmss_out)
-{
-    int h = ts_d / 3600;
-    int m = fmod((ts_d / 60), 60);
-    double s = fmod(ts_d, 60);
-
-    sprintf(ts_hhmmss_out, "%02d:%02d:%06.3f", h, m, s);
-    char *pos = strchr(ts_hhmmss_out, '.');
-    if (pos)
-    {
-        *pos = ',';
-    }
-}
-
-static void refresh_title()
-{
-    char title[CMD_BUF_MAX];
-
-    if (insert_mode)
-    {
-        sprintf(title, "INSERT %s", cmd_buf);
-    }
-    else
-    {
-        sprintf(title, "NORMAL %s", cmd_buf);
-    }
-
     SDL_SetWindowTitle(window, title);
 }
 
-static void frame_step()
+void toggle_fullscreen()
+{
+    static int isFullscreen;
+    if (isFullscreen == 0)
+        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    else
+        SDL_SetWindowFullscreen(window, 0);
+    isFullscreen ^= 1;
+}
+
+// Playback
+
+void toggle_pause()
+{
+    const char *cmd[] = {"cycle", "pause", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void frame_step()
 {
     const char *cmd[] = {"frame-step", NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 
-static void frame_back_step()
+void frame_back_step()
 {
     const char *cmd[] = {"frame-back-step", NULL};
     mpv_command_async(mpv, 0, cmd);
 }
 
-static void reload_sub()
+void seek_start()
 {
+    const char *cmd[] = {"seek", "0", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void seek_end()
+{
+    const char *cmd[] = {"seek", "100", "absolute-percent", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+void seek_absolute(const double value)
+{
+    char value_str[32];
+    snprintf(value_str, 32, "%f", value);
+    const char *cmd[] = {"seek", value_str, "absolute", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+// Seek relative seconds from current position
+void seek_relative(const double value)
+{
+    char value_str[32];
+    snprintf(value_str, 32, "%f", value);
+    const char *cmd[] = {"seek", value_str, "relative", "exact", NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+// Subtitling
+
+void sub_add(const char *filename)
+{
+    const char *cmd[] = {"sub-add", filename, NULL};
+    mpv_command_async(mpv, 0, cmd);
+}
+
+// Internal function to call reload a second time
+static void sub_reload2()
+{
+    sub_reload_semaphore++;
     const char *cmd[] = {"sub-reload", NULL};
-    mtx_reload++;
+    mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD2, cmd);
+}
+
+void sub_reload()
+{
+    sub_reload_semaphore++;
+    const char *cmd[] = {"sub-reload", NULL};
     mpv_command_async(mpv, REPLY_USERDATA_SUB_RELOAD, cmd);
-}
-
-static Sub *alloc_sub()
-{
-    return (Sub *)calloc(1, sizeof(Sub));
-}
-
-static void clear_cmd_buf()
-{
-    cmd_buf[0] = 0;
-}
-
-static void pop_char(char *text)
-{
-    int len = strlen(text);
-    if (len > 1 && text[len - 2] == '\n')
-    {
-        text[len - 2] = 0;
-    }
-    else if (len > 0)
-    {
-        text[len - 1] = 0;
-    }
-    else
-    {
-        show_text("String is empty!", "100");
-    }
-}
-
-static void add_sub(char *fname)
-{
-    if (!sub_fname)
-    {
-        const char *cmd[] = {"sub-add", fname, NULL};
-        mpv_command_async(mpv, 0, cmd);
-        sub_fname = fname;
-    }
-}
-
-static void import_sub(char *fname)
-{
-    char buf[CMD_BUF_MAX] = {0};
-    char pend_buf[CMD_BUF_MAX] = {0};
-
-    FILE *fp = fopen(fname, "r");
-    Sub *curr_sub = NULL;
-
-    while (fgets(buf, CMD_BUF_MAX, fp))
-    {
-        struct slre_cap caps[2];
-
-        if (slre_match("^([0-9]+)\n$", buf, strlen(buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                if (pend_buf[0] && curr_sub)
-                {
-                    strcat(curr_sub->text, pend_buf);
-                }
-                strncpy(pend_buf, caps[0].ptr, caps[0].len);
-            }
-        }
-        else if (slre_match("^([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+) --> ([0-9]+:[0-9]+:[0-9]+[,|\\.][0-9]+)\n$", buf, strlen(buf), caps, 2) > 0)
-        {
-            if (caps[0].len && caps[1].len)
-            {
-                if (curr_sub)
-                    insert_ordered(curr_sub);
-
-                curr_sub = alloc_sub();
-
-                char start[SMALL_BUF_MAX] = {0};
-                char end[SMALL_BUF_MAX] = {0};
-
-                strncpy(start, caps[0].ptr, caps[0].len);
-                strncpy(end, caps[1].ptr, caps[1].len);
-
-                curr_sub->start_d = hhmmss_to_d(start);
-                curr_sub->end_d = hhmmss_to_d(end);
-
-                if (pend_buf[0])
-                {
-                    pend_buf[0] = 0;
-                }
-            }
-        }
-        else if (slre_match("^([^\n].+)", buf, strlen(buf), caps, 1) > 0)
-        {
-            if (pend_buf[0])
-            {
-                if (curr_sub)
-                    strcat(curr_sub->text, pend_buf);
-                pend_buf[0] = 0;
-            }
-
-            if (curr_sub && caps[0].len)
-            {
-                strncat(curr_sub->text, caps[0].ptr, caps[0].len);
-            }
-        }
-    }
-
-    if (curr_sub)
-    {
-        insert_ordered(curr_sub);
-    }
-
-    fclose(fp);
-}
-
-static void export_sub(char *fname, int highlight)
-{
-    if (mtx_reload)
-    {
-        return;
-    }
-
-    FILE *pFile = fopen(fname, "w");
-
-    if (sub_head)
-    {
-        int i = 1;
-        Sub *sub_curr = sub_head;
-
-        while (sub_curr)
-        {
-            char start_hhmmss[SMALL_BUF_MAX];
-            char end_hhmmss[SMALL_BUF_MAX];
-
-            d_to_hhmmss(sub_curr->start_d, start_hhmmss);
-            d_to_hhmmss(sub_curr->end_d, end_hhmmss);
-
-            fprintf(pFile, "%d\n", i);
-            fprintf(pFile, "%s --> %s\n", start_hhmmss, end_hhmmss);
-            if (highlight && sub_curr == sub_focused)
-                fprintf(pFile, "<font color=" COLOR_SUB_FOCUSED ">%s</font>\n\n", sub_curr->text);
-            else
-                fprintf(pFile, "%s\n\n", sub_curr->text);
-
-            sub_curr = sub_curr->next;
-            i++;
-        }
-    }
-    else
-    {
-        fprintf(pFile, SUB_PLACEHOLDER);
-    }
-
-    fclose(pFile);
-}
-
-static Sub *delete_sub(Sub *sub_target)
-{
-    Sub *sub_curr = sub_head;
-    if (sub_head == sub_target)
-    {
-        sub_head = sub_target->next;
-        sub_curr = sub_head;
-    }
-    else
-    {
-        while (sub_curr)
-        {
-            if (!sub_curr->next)
-            {
-                show_text("Target sub not found!", "100");
-                return sub_head;
-            }
-
-            if (sub_curr->next == sub_target)
-            {
-                sub_curr->next = sub_target->next;
-                break;
-            }
-
-            sub_curr = sub_curr->next;
-        }
-    }
-
-    free(sub_target);
-    return sub_curr;
-}
-
-static void export_and_reload()
-{
-    export_sub(DEFAULT_SUB_FNAME, 1);
-    reload_sub();
-}
-
-static void set_sub_focus(Sub *sub)
-{
-    sub_focused = sub;
-    export_and_reload();
-}
-
-static void save_sub()
-{
-    char sub_out_fname[PATH_MAX];
-    char msg[CMD_BUF_MAX];
-
-    strcpy(sub_out_fname, video_fname);
-    strcat(sub_out_fname, ".srt");
-    export_sub(sub_out_fname, 0);
-    sprintf(msg, "Saved: %s", sub_out_fname);
-    show_text(msg, "2000");
-}
-
-static int process_ex()
-{
-    if (cmd_buf[0] == ':')
-    {
-        char *ex_buf = cmd_buf + 1;
-        struct slre_cap caps[1];
-        if (slre_match("^([a-zA-Z]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                if (!strcmp(caps[0].ptr, "w"))
-                {
-                    save_sub();
-                }
-                else if (!strcmp(caps[0].ptr, "wq"))
-                {
-                    save_sub();
-                    return -1;
-                }
-                else if (!strcmp(caps[0].ptr, "q"))
-                {
-                    return -1;
-                }
-            }
-        }
-        else if (slre_match("^([0-9]*)$", ex_buf, strlen(ex_buf), caps, 1) > 0)
-        {
-            if (caps[0].len)
-            {
-                // TODO: Support precise timestamps
-                long pos = strtol(caps[0].ptr, NULL, 10);
-                exact_seek_d(pos, "absolute");
-            }
-        }
-    }
-    clear_cmd_buf();
-    refresh_title();
-
-    return 0;
-}
-
-static void gen_placeholder(char *fname)
-{
-    FILE *pFile = fopen(fname, "w");
-    fprintf(pFile, SUB_PLACEHOLDER);
-    fclose(pFile);
-}
-
-static void set_window_icon()
-{
-    static uint8_t pixels[] = {
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xfc, 0xf1, 0xff, 0xff, 0xfb, 0xed, 0xff, 0xff, 0xfe, 0xfb, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xe4, 0x81, 0xff, 0xff, 0xdc, 0x5a, 0xff, 0xff, 0xd7, 0x43, 0xff, 0xff, 0xe2, 0x79, 0xff,
-        0xfc, 0xf0, 0xbd, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xfe, 0xe1, 0x73, 0xff, 0xff, 0xd8, 0x48, 0xff, 0xff, 0xd3, 0x30, 0xff, 0xb5, 0xbb, 0x19, 0xff,
-        0xa5, 0xb8, 0x1c, 0xff, 0x9e, 0xd7, 0xb7, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe0, 0xf2, 0xe8, 0xff,
-        0x90, 0xd1, 0xad, 0xff, 0xc9, 0xe8, 0xd7, 0xff, 0xf5, 0xfb, 0xf7, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xf9, 0xe4, 0xff, 0xff, 0xd9, 0x4d, 0xff, 0xff, 0xd7, 0x45, 0xff,
-        0xff, 0xd8, 0x4c, 0xff, 0xff, 0xd8, 0x4c, 0xff, 0xff, 0xdb, 0x55, 0xff, 0xb2, 0xc7, 0x56, 0xff,
-        0x6a, 0xb7, 0x61, 0xff, 0x8d, 0xd0, 0xab, 0xff, 0xff, 0xff, 0xff, 0xff, 0x98, 0xd4, 0xb2, 0xff,
-        0x43, 0xb2, 0x74, 0xff, 0x2e, 0xaa, 0x64, 0xfe, 0xe7, 0xf5, 0xed, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xf2, 0xc2, 0xff, 0xff, 0xdb, 0x56, 0xff, 0xff, 0xd6, 0x41, 0xff,
-        0xff, 0xf8, 0xdf, 0xff, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0x75, 0xc6, 0x98, 0xff,
-        0x4e, 0xb6, 0x7b, 0xff, 0x2f, 0xaa, 0x65, 0xff, 0x62, 0xbe, 0x8a, 0xff, 0x2f, 0xa9, 0x65, 0xff,
-        0x34, 0xab, 0x68, 0xff, 0x7f, 0xca, 0xa0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf3, 0xc6, 0xff, 0xff, 0xdc, 0x5c, 0xff,
-        0xff, 0xdd, 0x5f, 0xff, 0xff, 0xf4, 0xcb, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80, 0xcb, 0xa0, 0xff,
-        0x46, 0xb3, 0x76, 0xff, 0x7a, 0xc8, 0x9d, 0xff, 0x59, 0xbb, 0x85, 0xfe, 0x5f, 0xbd, 0x88, 0xff,
-        0x5e, 0xbd, 0x87, 0xff, 0x8c, 0xcf, 0xaa, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe, 0xf9, 0xff, 0xff, 0xd3, 0x2f, 0xff,
-        0xff, 0xe1, 0x73, 0xff, 0xff, 0xe8, 0x95, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8, 0xfc, 0xfa, 0xff,
-        0x34, 0xab, 0x68, 0xff, 0xd7, 0xee, 0xe1, 0xff, 0x61, 0xbf, 0x8b, 0xfe, 0x74, 0xc5, 0x96, 0xff,
-        0x6b, 0xc3, 0x92, 0xfe, 0x8b, 0xcf, 0xa9, 0xff, 0xd4, 0xed, 0xdf, 0xff, 0xc8, 0xe8, 0xd6, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf4, 0xcd, 0xff, 0xff, 0xe3, 0x7c, 0xff,
-        0xff, 0xe2, 0x78, 0xff, 0xff, 0xd8, 0x45, 0xff, 0xff, 0xf2, 0xc5, 0xff, 0xfe, 0xfe, 0xfe, 0xff,
-        0x3c, 0xaf, 0x6d, 0xfe, 0x3d, 0xaf, 0x6f, 0xff, 0x5f, 0xbd, 0x88, 0xff, 0xac, 0xdd, 0xc1, 0xfe,
-        0x66, 0xc0, 0x8e, 0xff, 0x80, 0xca, 0xa1, 0xff, 0x27, 0xa6, 0x5f, 0xff, 0x9b, 0xd6, 0xb5, 0xfe,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xe2, 0x75, 0xfe, 0xff, 0xd9, 0x4d, 0xff,
-        0xff, 0xd9, 0x4d, 0xff, 0xff, 0xe8, 0x94, 0xff, 0xfe, 0xd0, 0x25, 0xff, 0xfe, 0xd8, 0x49, 0xff,
-        0x2e, 0xa1, 0x3c, 0xff, 0x28, 0xa0, 0x3e, 0xff, 0x41, 0xb1, 0x73, 0xff, 0x2a, 0xa7, 0x61, 0xff,
-        0x3d, 0xaf, 0x6f, 0xff, 0x25, 0xa6, 0x5d, 0xff, 0xa2, 0xd8, 0xb9, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0, 0xbb, 0xff, 0xff, 0xe6, 0x8c, 0xff,
-        0xff, 0xe2, 0x78, 0xff, 0xff, 0xcb, 0x08, 0xff, 0xff, 0xd5, 0x39, 0xff, 0xff, 0xdc, 0x5a, 0xff,
-        0xc1, 0xbe, 0x15, 0xff, 0xaa, 0xc6, 0x56, 0xff, 0x92, 0xd2, 0xae, 0xff, 0xa6, 0xda, 0xbc, 0xff,
-        0x53, 0xb8, 0x7f, 0xff, 0x4c, 0xb6, 0x7a, 0xff, 0xe6, 0xf4, 0xec, 0xfe, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf0, 0xb4, 0xfe,
-        0xff, 0xdd, 0x62, 0xff, 0xff, 0xe1, 0x74, 0xff, 0xff, 0xfb, 0xed, 0xff, 0xff, 0xe9, 0x99, 0xff,
-        0xff, 0xe5, 0x86, 0xff, 0xff, 0xf2, 0xc3, 0xff, 0x3c, 0xaf, 0x6e, 0xff, 0x64, 0xc1, 0x8d, 0xfe,
-        0x2d, 0xa9, 0x64, 0xff, 0x26, 0xa6, 0x5e, 0xff, 0xe6, 0xf5, 0xec, 0xfe, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd8, 0x49, 0xff,
-        0xff, 0xda, 0x52, 0xff, 0xff, 0xdc, 0x5a, 0xff, 0xff, 0xec, 0xa6, 0xff, 0xff, 0xd9, 0x4c, 0xff,
-        0xff, 0xd9, 0x4d, 0xff, 0xe8, 0xd6, 0x5b, 0xff, 0x8f, 0xd0, 0xab, 0xff, 0x1e, 0xa2, 0x58, 0xff,
-        0x6a, 0xc2, 0x90, 0xff, 0x52, 0xb8, 0x7f, 0xff, 0xf8, 0xfc, 0xfa, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xd9, 0x49, 0xff,
-        0xff, 0xdf, 0x6b, 0xff, 0xff, 0xe1, 0x72, 0xfe, 0xff, 0xe2, 0x74, 0xfe, 0xff, 0xe9, 0x97, 0xff,
-        0xff, 0xeb, 0xa3, 0xff, 0xdc, 0xe4, 0xaa, 0xff, 0x9c, 0xd6, 0xb6, 0xff, 0xad, 0xdd, 0xc2, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xee, 0xae, 0xff,
-        0xff, 0xe3, 0x7c, 0xff, 0xff, 0xdb, 0x55, 0xff, 0xff, 0xd7, 0x42, 0xff, 0xff, 0xe1, 0x75, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xed, 0xab, 0xff, 0xff, 0xd9, 0x4b, 0xff, 0xff, 0xde, 0x62, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xfa, 0xe8, 0xff, 0xff, 0xf0, 0xba, 0xff, 0xff, 0xf9, 0xe4, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    SDL_Surface *surface = SDL_CreateRGBSurfaceFrom(pixels, 16, 16, 32, 16 * 4, 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
-    SDL_SetWindowIcon(window, surface);
-    SDL_FreeSurface(surface);
-}
-
-static void init()
-{
-    mpv_get_property_async(mpv, 0, "duration", MPV_FORMAT_DOUBLE);
-    gen_placeholder(DEFAULT_SUB_FNAME);
-    add_sub(DEFAULT_SUB_FNAME);
-    SDL_StartTextInput();
-}
-
-static void get_subs_in_frame(Sub **sub_arr, unsigned int *len)
-{
-    int i = 0;
-    if (sub_head)
-    {
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (in_frame(sub_curr))
-            {
-                sub_arr[i] = sub_curr;
-                i++;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
-
-    *len = i;
-    sub_arr[i] = NULL;
-}
-
-static void focus_next(int seek)
-{
-    if (sub_focused->next)
-    {
-        set_sub_focus(sub_focused->next);
-        if (seek)
-            exact_seek_d(sub_focused->start_d, "absolute");
-    }
-    else
-    {
-        show_text("At last sub!\n", "100");
-    }
-}
-
-static void focus_back(int seek)
-{
-    if (sub_focused == sub_head)
-    {
-        show_text("At first sub!\n", "100");
-    }
-    else
-    {
-        Sub *sub_curr = sub_head;
-        while (sub_curr)
-        {
-            if (sub_curr->next == sub_focused)
-            {
-                set_sub_focus(sub_curr);
-                if (seek)
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                break;
-            }
-            sub_curr = sub_curr->next;
-        }
-    }
-}
-
-static void process_cmd(char *c)
-{
-    strcat(cmd_buf, c);
-    if (cmd_buf[0] == ':')
-    {
-        goto end;
-    }
-    struct slre_cap caps[2];
-    if (slre_match("^([0-9]*)([a-zA-Z\\. ]*)$", cmd_buf, strlen(cmd_buf), caps, 2) > 0)
-    {
-        long q = -1;
-        if (caps[0].len)
-        {
-            q = strtol(caps[0].ptr, NULL, 10);
-        }
-
-        if (strstr(caps[1].ptr, " "))
-        {
-            toggle_pause();
-        }
-        else if (strstr(caps[1].ptr, "."))
-        {
-            // repeat
-        }
-        else if (strstr(caps[1].ptr, "a"))
-        {
-            Sub *sub_new = alloc_sub();
-            sub_new->start_d = ts_s_d;
-            sub_new->end_d = duration_d;
-
-            insert_ordered(sub_new);
-
-            set_sub_focus(sub_new);
-            insert_mode = 1;
-        }
-        else if (strstr(caps[1].ptr, "s"))
-        {
-            frame_step();
-        }
-        else if (strstr(caps[1].ptr, "S"))
-        {
-            frame_back_step();
-        }
-        else if (strstr(caps[1].ptr, "i"))
-        {
-            Sub *sub_arr[100];
-            unsigned int len;
-            get_subs_in_frame(sub_arr, &len);
-            if (len)
-            {
-                if (q == -1)
-                {
-                    for (int i = 0; i < len; i++)
-                    {
-                        if (sub_focused == sub_arr[i])
-                        {
-                            q = i;
-                            break;
-                        }
-                    }
-                    if (q == -1)
-                        q = 0;
-                }
-
-                if (q < len)
-                {
-                    set_sub_focus(sub_arr[q]);
-                    insert_mode = 1;
-                }
-                else
-                {
-                    show_text("Out of bounds!", "100");
-                }
-            }
-            else
-            {
-                show_text("No sub in frame!", "100");
-            }
-        }
-        else if (strstr(caps[1].ptr, "w"))
-        {
-            if (sub_focused)
-            {
-                focus_next(1);
-            }
-        }
-        else if (strstr(caps[1].ptr, "W"))
-        {
-            if (sub_focused)
-            {
-                focus_next(0);
-            }
-        }
-        // else if (strstr(caps[1].ptr, "b"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         focus_back(1);
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "B"))
-        {
-            if (sub_focused)
-            {
-                focus_back(0);
-            }
-        }
-        // else if (strstr(caps[1].ptr, "o"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         if (q == -1)
-        //             q = 0;
-        //         exact_seek_d(sub_focused->start_d - (q * STEP_MEDIUM), "absolute");
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "b"))
-        {
-            if (sub_focused)
-            {
-                if (ts_s_d == sub_focused->start_d)
-                {
-                    focus_back(1);
-                }
-                else
-                {
-                    exact_seek_d(sub_focused->start_d, "absolute");
-                }
-            }
-        }
-        else if (strstr(caps[1].ptr, "e"))
-        {
-            if (sub_focused)
-            {
-                exact_seek_d(sub_focused->end_d, "absolute");
-            }
-        }
-        else if (strstr(caps[1].ptr, "G"))
-        {
-            if (q == -1)
-            {
-                const char *cmd_seek[] = {"seek", "100", "absolute-percent", "exact", NULL};
-                mpv_command_async(mpv, 0, cmd_seek);
-            }
-            else
-            {
-                exact_seek_d(q, "absolute");
-            }
-        }
-        // else if (strstr(caps[1].ptr, "O"))
-        // {
-        //     if (sub_focused)
-        //     {
-        //         if (q == -1)
-        //             q = 0;
-        //         exact_seek_d(sub_focused->end_d - (q * STEP_MEDIUM), "absolute");
-        //     }
-        // }
-        else if (strstr(caps[1].ptr, "h"))
-        {
-            if (sub_focused)
-            {
-                // TODO: Write sub clone function
-                Sub *sub_new = alloc_sub();
-
-                sub_new->start_d = ts_s_d;
-                sub_new->end_d = sub_focused->end_d;
-                strncpy(sub_new->text, sub_focused->text, sizeof(sub_new->text));
-
-                insert_ordered(sub_new);
-
-                delete_sub(sub_focused);
-                set_sub_focus(sub_new);
-            }
-        }
-        else if (strstr(caps[1].ptr, "l"))
-        {
-            if (sub_focused)
-            {
-                sub_focused->end_d = ts_s_d;
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Hj"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->start_d -= STEP_SMALL;
-                else
-                    sub_focused->start_d -= q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Hk"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->start_d += STEP_SMALL;
-                else
-                    sub_focused->start_d += q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Lj"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->end_d -= STEP_SMALL;
-                else
-                    sub_focused->end_d -= q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "Lk"))
-        {
-            if (sub_focused)
-            {
-                if (q == -1)
-                    sub_focused->end_d += STEP_SMALL;
-                else
-                    sub_focused->end_d += q * STEP_SMALL;
-
-                export_and_reload();
-            }
-        }
-        else if (strstr(caps[1].ptr, "j"))
-        {
-            q == -1 ? exact_seek("-" STR(STEP_DEFAULT), "relative") : exact_seek_d(q * -1, "relative");
-        }
-        else if (strstr(caps[1].ptr, "k"))
-        {
-            q == -1 ? exact_seek(STR(STEP_DEFAULT), "relative") : exact_seek_d(q * 1, "relative");
-        }
-        else if (strstr(caps[1].ptr, "J"))
-        {
-            q == -1 ? exact_seek("-" STR(STEP_SMALL), "relative") : exact_seek_d(q * -STEP_SMALL, "relative");
-        }
-        else if (strstr(caps[1].ptr, "K"))
-        {
-            q == -1 ? exact_seek(STR(STEP_SMALL), "relative") : exact_seek_d(q * STEP_SMALL, "relative");
-        }
-        else if (strstr(caps[1].ptr, "gg"))
-        {
-            exact_seek("0", "absolute");
-        }
-        else if (strstr(caps[1].ptr, "dd"))
-        {
-            if (sub_focused)
-            {
-                set_sub_focus(delete_sub(sub_focused));
-            }
-        }
-        else
-        {
-            goto end;
-        }
-        clear_cmd_buf();
-    }
-    else
-    {
-        // No match
-        printf("Error parsing [%s]\n", cmd_buf);
-        clear_cmd_buf();
-    }
-end:
-    refresh_title();
-}
-
-static void insert_text(char *text)
-{
-    if (sub_focused)
-    {
-        if (in_frame(sub_focused))
-        {
-            strcat(sub_focused->text, text);
-            export_and_reload();
-        }
-        else
-        {
-            show_text("Sub not in frame!", "100");
-        }
-    }
-}
-
-static void pop_word(char *text)
-{
-    int len = strlen(text);
-    if (len)
-    {
-        while (isspace(text[len - 1]))
-            len--;
-        text[len] = 0;
-
-        char *pos = ptr_max(strrchr(text, ' '), strrchr(text, '\n'));
-        if (pos)
-        {
-            *(pos + 1) = 0;
-        }
-        else
-        {
-            text[0] = 0;
-        }
-    }
 }
 
 int main(int argc, char *argv[])
 {
     if (argc < 2)
         die("Usage: sbubby video.mp4 [sub.srt]");
-    video_fname = argv[1];
+    if (argc > 2)
+        export_filename = argv[2];
+
+    const char *video_fname = argv[1];
 
     mpv = mpv_create();
     if (!mpv)
@@ -950,11 +184,11 @@ int main(int argc, char *argv[])
 
     window =
         SDL_CreateWindow("Sbubby", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                         640, 360, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+                         WINDOW_WIDTH, WINDOW_HEIGHT, SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     if (!window)
         die("failed to create SDL window");
 
-    set_window_icon();
+    set_window_icon(window);
 
     SDL_GLContext glcontext = SDL_GL_CreateContext(window);
     if (!glcontext)
@@ -1003,9 +237,11 @@ int main(int argc, char *argv[])
     //  users which run OpenGL on a different thread.)
     mpv_render_context_set_update_callback(mpv_gl, on_mpv_render_update, NULL);
 
-    // Play this file.
+    // Loop the video
     const char *cmd_loop[] = {"set", "loop", "inf", NULL};
     mpv_command_async(mpv, 0, cmd_loop);
+
+    // Play this file.
     const char *cmd[] = {"loadfile", video_fname, NULL};
     mpv_command_async(mpv, 0, cmd);
 
@@ -1024,78 +260,75 @@ int main(int argc, char *argv[])
                 redraw = 1;
             break;
         case SDL_TEXTINPUT:
-            if (insert_mode)
-            {
-                insert_text(event.text.text);
-            }
-            else
-            {
-                process_cmd(event.text.text);
-            }
+            // Continuous text input
+            handle_text_input(event.text.text);
             break;
         case SDL_KEYDOWN:
-            if (event.key.keysym.sym == SDLK_ESCAPE)
+            // Single keypresses
+            switch (event.key.keysym.sym)
             {
-                if (insert_mode)
+            case SDLK_ESCAPE:
+                handle_escape();
+                break;
+            case SDLK_w:
+                if (SDL_GetModState() & KMOD_CTRL)
+                    handle_ctrl_backspace();
+                break;
+            case SDLK_BACKSPACE:
+                if (SDL_GetModState() & KMOD_CTRL)
                 {
-                    insert_mode = 0;
+                    handle_ctrl_backspace();
+                    break;
                 }
-                else
+                handle_backspace();
+                break;
+            case SDLK_DELETE:
+                if (SDL_GetModState() & KMOD_CTRL)
                 {
-                    clear_cmd_buf();
+                    handle_ctrl_delete();
+                    break;
                 }
-                refresh_title();
-            }
-            else if (event.key.keysym.sym == SDLK_w)
-            {
-                if (insert_mode)
+                handle_delete();
+                break;
+            case SDLK_RETURN:
+                handle_return();
+                break;
+            case SDLK_LEFT:
+                if (SDL_GetModState() & KMOD_CTRL)
                 {
-                    if (sub_focused)
-                    {
-                        if (SDL_GetModState() & KMOD_CTRL)
-                        {
-                            pop_word(sub_focused->text);
-                            export_and_reload();
-                        }
-                    }
+                    handle_ctrl_left();
+                    break;
                 }
-            }
-            else if (event.key.keysym.sym == SDLK_BACKSPACE)
-            {
-                if (insert_mode)
+                handle_left();
+                break;
+            case SDLK_RIGHT:
+                if (SDL_GetModState() & KMOD_CTRL)
                 {
-                    if (sub_focused)
-                    {
-                        if (SDL_GetModState() & KMOD_CTRL)
-                        {
-                            pop_word(sub_focused->text);
-                        }
-                        else
-                        {
-                            pop_char(sub_focused->text);
-                        }
-                        export_and_reload();
-                    }
+                    handle_ctrl_right();
+                    break;
                 }
-                else
-                {
-                    pop_char(cmd_buf);
-                    refresh_title();
-                }
-            }
-            else if (event.key.keysym.sym == SDLK_RETURN)
-            {
-                if (insert_mode)
-                {
-                    insert_text("\n");
-                }
-                else
-                {
-                    if (process_ex() == -1)
-                    {
-                        goto done;
-                    }
-                }
+                handle_right();
+                break;
+            case SDLK_HOME:
+                set_cursor_start();
+                export_reload_sub();
+                break;
+            case SDLK_END:
+                set_cursor_end();
+                export_reload_sub();
+                break;
+            case SDLK_p:
+                // Universal pause shortcut
+                if (SDL_GetModState() & KMOD_CTRL)
+                    toggle_pause();
+                break;
+            case SDLK_c:
+                if (SDL_GetModState() & KMOD_CTRL)
+                    handle_ctrl_c();
+                break;
+
+            default:
+                break;
             }
             break;
         default:
@@ -1116,47 +349,31 @@ int main(int argc, char *argv[])
                     mpv_event *mp_event = mpv_wait_event(mpv, 0);
                     if (mp_event->event_id == MPV_EVENT_FILE_LOADED)
                     {
-                        init();
-                        if (argc >= 3)
-                        {
-                            import_sub(argv[2]);
-                            if (!sub_focused && sub_head)
-                                sub_focused = sub_head;
-                            export_and_reload();
-                        }
+                        main_init();
                     }
                     if (mp_event->event_id == MPV_EVENT_COMMAND_REPLY)
                     {
                         if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD)
                         {
-                            mtx_reload--;
+                            sub_reload2();
+                            sub_reload_semaphore--;
+                        }
+                        else if (mp_event->reply_userdata == REPLY_USERDATA_SUB_RELOAD2)
+                        {
+                            sub_reload_semaphore--;
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_GET_PROPERTY_REPLY)
                     {
                         mpv_event_property *evp = (mpv_event_property *)(mp_event->data);
 
-                        if (!strcmp(evp->name, "time-pos"))
+                        if (mp_event->reply_userdata == REPLY_USERDATA_UPDATE_TIMESTAMP)
                         {
-                            if (evp->format == MPV_FORMAT_DOUBLE)
-                            {
-                                double value = *(double *)(evp->data);
-                                if (value)
-                                {
-                                    ts_s_d = value;
-                                }
-                            }
+                            curr_timestamp = *(double *)(evp->data);
                         }
-                        else if (!strcmp(evp->name, "duration"))
+                        else if (mp_event->reply_userdata == REPLY_USERDATA_UPDATE_FILENAME)
                         {
-                            if (evp->format == MPV_FORMAT_DOUBLE)
-                            {
-                                double value = *(double *)(evp->data);
-                                if (value)
-                                {
-                                    duration_d = value;
-                                }
-                            }
+                            snprintf(export_filename, 256, "%s.srt", *(char **)(evp->data));
                         }
                     }
                     if (mp_event->event_id == MPV_EVENT_NONE)
@@ -1179,8 +396,8 @@ int main(int argc, char *argv[])
         }
         if (redraw)
         {
-            // mpv_get_property_async(mpv, 0, "playback-time", MPV_FORMAT_DOUBLE);
-            mpv_get_property_async(mpv, 0, "time-pos", MPV_FORMAT_DOUBLE);
+            // Get timestamp every frame
+            mpv_get_property_async(mpv, REPLY_USERDATA_UPDATE_TIMESTAMP, "time-pos", MPV_FORMAT_DOUBLE);
 
             int w, h;
             SDL_GetWindowSize(window, &w, &h);
