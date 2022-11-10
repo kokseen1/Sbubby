@@ -92,6 +92,11 @@ void import_sub(const char *filename)
             {
                 if (curr_sub)
                 {
+                    size_t len = strlen(curr_sub->text);
+                    if (len > 0 && curr_sub->text[len - 1] == '\n')
+                    {
+                        curr_sub->text[len - 1] = '\0';
+                    }
                     insert_ordered(curr_sub);
                 }
 
@@ -130,6 +135,11 @@ void import_sub(const char *filename)
 
     if (curr_sub)
     {
+        size_t len = strlen(curr_sub->text);
+        if (len > 0 && curr_sub->text[len - 1] == '\n')
+        {
+            curr_sub->text[len - 1] = '\0';
+        }
         insert_ordered(curr_sub);
     }
 
